@@ -16,6 +16,7 @@ This script runs clang-tidy in fix mode and verify fixes, messages or both.
 
 Usage:
   check_clang_tidy.py [-resource-dir=<resource-dir>] \
+    [-header-files=<comma-separated-header-file-names>] \
     [-assume-filename=<file-with-source-extension>] \
     [-check-suffix=<comma-separated-file-check-suffixes>] \
     [-check-suffixes=<comma-separated-file-check-suffixes>] \
@@ -72,9 +73,16 @@ class MessagePrefix:
     return self.has_message
 
 
+def read_file(input_file_name):
+  with open(input_file_name, 'r', encoding='utf-8') as input_file:
+    return input_file.read()
+
+
 class CheckRunner:
   def __init__(self, args, extra_args):
     self.resource_dir = args.resource_dir
+    self.header_files = args.header_files
+    self.header_contents = []
     self.assume_file_name = args.assume_filename
     self.input_file_name = args.input_file_name
     self.check_name = args.check_name
@@ -127,8 +135,11 @@ class CheckRunner:
       self.clang_extra_args.append('-resource-dir=%s' % self.resource_dir)
 
   def read_input(self):
-    with open(self.input_file_name, 'r', encoding='utf-8') as input_file:
-      self.input_text = input_file.read()
+    self.input_text = read_file(self.input_file_name)
+
+    dir = os.path.dirname(self.input_file_name)
+    for header in self.header_files:
+      self.header_contents.append(read_file(os.path.join(dir, header)))
 
   def get_prefixes(self):
     for suffix in self.check_suffix:
@@ -151,11 +162,20 @@ class CheckRunner:
         sys.exit('Please use either %s or %s but not both' %
           (self.notes.prefix, self.messages.prefix))
 
-      if not has_check_fix and not has_check_message and not has_check_note:
+      if not (has_check_fix or has_check_message or has_check_note):
         sys.exit('%s, %s or %s not found in the input' %
           (self.fixes.prefix, self.messages.prefix, self.notes.prefix))
 
     assert self.has_check_fixes or self.has_check_messages or self.has_check_notes
+
+  def temp_path(self, file_name):
+    return os.path.join(os.path.dirname(self.temp_file_name), os.path.basename(file_name))
+
+  def temp_header_name(self, header):
+    return self.temp_path(header)
+
+  def original_header_name(self, header):
+    return self.temp_path(header + ".orig")
 
   def prepare_test_inputs(self):
     # Remove the contents of the CHECK lines to avoid CHECKs matching on
@@ -165,6 +185,12 @@ class CheckRunner:
     cleaned_test = re.sub('// *CHECK-[A-Z0-9\\-]*:[^\r\n]*', '//', self.input_text)
     write_file(self.temp_file_name, cleaned_test)
     write_file(self.original_file_name, cleaned_test)
+
+    for i in range(len(self.header_files)):
+      header = self.header_files[i]
+      cleaned_header = re.sub('// *CHECK-[A-Z0-9\\-]*:[^\r\n]*', '//', self.header_contents[i])
+      write_file(self.temp_header_name(header), cleaned_header)
+      write_file(self.original_header_name(header), cleaned_header)
 
   def run_clang_tidy(self):
     args = ['clang-tidy', self.temp_file_name, '-fix', '--checks=-*,' + self.check_name] + \
@@ -239,6 +265,11 @@ def parse_arguments():
   parser = argparse.ArgumentParser()
   parser.add_argument('-expect-clang-tidy-error', action='store_true')
   parser.add_argument('-resource-dir')
+  parser.add_argument(
+    '-header-files',
+    default=[],
+    type=csv,
+    help='comma-separated list of header files to check')
   parser.add_argument('-assume-filename')
   parser.add_argument('input_file_name')
   parser.add_argument('check_name')
