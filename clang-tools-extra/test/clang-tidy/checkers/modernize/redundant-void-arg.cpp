@@ -1,4 +1,6 @@
-// RUN: %check_clang_tidy %s modernize-redundant-void-arg %t
+// RUN: %check_clang_tidy -header-files=Inputs/modernize-redundant-void-arg/modernize-redundant-void-arg.h %s modernize-redundant-void-arg %t -- --header-filter=modernize-redundant-void-arg.h
+
+#include "modernize-redundant-void-arg.h"
 
 #define NULL 0
 
