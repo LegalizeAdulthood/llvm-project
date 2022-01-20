@@ -37,6 +37,7 @@
 #include "InfiniteLoopCheck.h"
 #include "IntegerDivisionCheck.h"
 #include "LambdaFunctionNameCheck.h"
+#include "MacroConditionCheck.h"
 #include "MacroParenthesesCheck.h"
 #include "MacroRepeatedSideEffectsCheck.h"
 #include "MisplacedOperatorInStrlenInAllocCheck.h"
@@ -151,6 +152,8 @@ public:
         "bugprone-integer-division");
     CheckFactories.registerCheck<LambdaFunctionNameCheck>(
         "bugprone-lambda-function-name");
+    CheckFactories.registerCheck<MacroConditionCheck>(
+        "bugprone-macro-condition");
     CheckFactories.registerCheck<MacroParenthesesCheck>(
         "bugprone-macro-parentheses");
     CheckFactories.registerCheck<MacroRepeatedSideEffectsCheck>(

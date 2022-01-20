@@ -134,6 +134,11 @@ New checks
   Detects error-prone Curiously Recurring Template Pattern usage, when the CRTP
   can be constructed outside itself and the derived class.
 
+- New :doc:`bugprone-macro-condition
+  <clang-tidy/checks/bugprone/macro-condition>` check.
+
+  Warns about inconsistent macro usage in preprocessor conditions.
+
 - New :doc:`bugprone-return-const-ref-from-parameter
   <clang-tidy/checks/bugprone/return-const-ref-from-parameter>` check.
 

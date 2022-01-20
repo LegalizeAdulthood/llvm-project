@@ -34,6 +34,7 @@ add_clang_library(clangTidyBugproneModule
   InfiniteLoopCheck.cpp
   IntegerDivisionCheck.cpp
   LambdaFunctionNameCheck.cpp
+  MacroConditionCheck.cpp
   MacroParenthesesCheck.cpp
   MacroRepeatedSideEffectsCheck.cpp
   MisplacedOperatorInStrlenInAllocCheck.cpp

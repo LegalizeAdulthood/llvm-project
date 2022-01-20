@@ -1,3 +1,4 @@
+
 .. title:: clang-tidy - Clang-Tidy Checks
 
 Clang-Tidy Checks
@@ -103,6 +104,7 @@ Clang-Tidy Checks
    :doc:`bugprone-infinite-loop <bugprone/infinite-loop>`,
    :doc:`bugprone-integer-division <bugprone/integer-division>`,
    :doc:`bugprone-lambda-function-name <bugprone/lambda-function-name>`,
+   :doc:`bugprone-macro-condition <bugprone/macro-condition.html>`, "Yes"
    :doc:`bugprone-macro-parentheses <bugprone/macro-parentheses>`, "Yes"
    :doc:`bugprone-macro-repeated-side-effects <bugprone/macro-repeated-side-effects>`,
    :doc:`bugprone-misplaced-operator-in-strlen-in-alloc <bugprone/misplaced-operator-in-strlen-in-alloc>`, "Yes"
