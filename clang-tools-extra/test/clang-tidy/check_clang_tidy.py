@@ -16,7 +16,7 @@ This script runs clang-tidy in fix mode and verify fixes, messages or both.
 
 Usage:
   check_clang_tidy.py [-resource-dir=<resource-dir>] \
-    [-header-files=<comma-separated-header-file-names>] \
+    [-check-headers=<comma-separated-header-file-names>] \
     [-assume-filename=<file-with-source-extension>] \
     [-check-suffix=<comma-separated-file-check-suffixes>] \
     [-check-suffixes=<comma-separated-file-check-suffixes>] \
@@ -81,7 +81,7 @@ def read_file(input_file_name):
 class CheckRunner:
   def __init__(self, args, extra_args):
     self.resource_dir = args.resource_dir
-    self.header_files = args.header_files
+    self.check_headers = args.check_headers
     self.header_contents = []
     self.assume_file_name = args.assume_filename
     self.input_file_name = args.input_file_name
@@ -138,7 +138,7 @@ class CheckRunner:
     self.input_text = read_file(self.input_file_name)
 
     dir = os.path.dirname(self.input_file_name)
-    for header in self.header_files:
+    for header in self.check_headers:
       self.header_contents.append(read_file(os.path.join(dir, header)))
 
   def get_prefixes(self):
@@ -186,8 +186,8 @@ class CheckRunner:
     write_file(self.temp_file_name, cleaned_test)
     write_file(self.original_file_name, cleaned_test)
 
-    for i in range(len(self.header_files)):
-      header = self.header_files[i]
+    for i in range(len(self.check_headers)):
+      header = self.check_headers[i]
       cleaned_header = re.sub('// *CHECK-[A-Z0-9\\-]*:[^\r\n]*', '//', self.header_contents[i])
       write_file(self.temp_header_name(header), cleaned_header)
       write_file(self.original_header_name(header), cleaned_header)
@@ -266,7 +266,7 @@ def parse_arguments():
   parser.add_argument('-expect-clang-tidy-error', action='store_true')
   parser.add_argument('-resource-dir')
   parser.add_argument(
-    '-header-files',
+    '-check-headers',
     default=[],
     type=csv,
     help='comma-separated list of header files to check')
