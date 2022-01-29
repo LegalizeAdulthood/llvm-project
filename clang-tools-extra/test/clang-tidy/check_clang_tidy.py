@@ -132,10 +132,6 @@ class CheckRunner:
 
   def get_prefixes(self):
     for suffix in self.check_suffix:
-      if suffix and not re.match('^[A-Z0-9\\-]+$', suffix):
-        sys.exit('Only A..Z, 0..9 and "-" are allowed in check suffixes list,'
-                 + ' but "%s" was given' % suffix)
-
       file_check_suffix = ('-' + suffix) if suffix else ''
 
       has_check_fix = self.fixes.check(file_check_suffix, self.input_text)
@@ -250,8 +246,13 @@ def parse_arguments():
     type=csv,
     help='comma-separated list of FileCheck suffixes')
   parser.add_argument('-std', type=csv, default=['c++11-or-later'])
-  return parser.parse_known_args()
 
+  [args, extra_args] = parser.parse_known_args()
+  for suffix in args.check_suffix:
+    if suffix and not re.match('^[A-Z0-9\\-]+$', suffix):
+      sys.exit('Only A..Z, 0..9 and "-" are allowed in check suffixes list,'
+               + ' but "%s" was given' % suffix)
+  return [args, extra_args]
 
 def main():
   args, extra_args = parse_arguments()
