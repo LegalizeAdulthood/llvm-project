@@ -177,6 +177,9 @@ class CheckRunner:
   def original_header_name(self, header):
     return self.temp_path(header + ".orig")
 
+  def input_header_name(self, header):
+    return self.temp_path(header)
+
   def prepare_test_inputs(self):
     # Remove the contents of the CHECK lines to avoid CHECKs matching on
     # themselves.  We need to keep the comments to preserve line numbers while
@@ -192,6 +195,13 @@ class CheckRunner:
       write_file(self.temp_header_name(header), cleaned_header)
       write_file(self.original_header_name(header), cleaned_header)
 
+  def get_diffs(self):
+    diffs = []
+    diffs.append(try_run(['diff', '-u', self.original_file_name, self.temp_file_name], False))
+    for header in self.check_headers:
+      diffs.append(try_run(['diff', '-u', self.original_header_name(header), self.temp_header_name(header)], False))
+    return diffs
+
   def run_clang_tidy(self):
     args = ['clang-tidy', self.temp_file_name, '-fix', '--checks=-*,' + self.check_name] + \
         self.clang_tidy_extra_args + ['--'] + self.clang_extra_args
@@ -203,35 +213,51 @@ class CheckRunner:
     print(clang_tidy_output.encode(sys.stdout.encoding, errors="replace").decode(sys.stdout.encoding))
     print('------------------------------------------------------------------')
 
-    diff_output = try_run(['diff', '-u', self.original_file_name, self.temp_file_name], False)
+    diffs = self.get_diffs()
     print('------------------------------ Fixes -----------------------------')
-    print(diff_output)
+    for diff_output in diffs:
+      print(diff_output)
     print('------------------------------------------------------------------')
     return clang_tidy_output
 
-  def check_fixes(self):
+  def check_file_fixes(self, temp_file, input_file):
     if self.has_check_fixes:
-      try_run(['FileCheck', '-input-file=' + self.temp_file_name, self.input_file_name,
+      try_run(['FileCheck', '-input-file=' + temp_file, input_file,
               '-check-prefixes=' + ','.join(self.fixes.prefixes),
               '-strict-whitespace'])
 
-  def check_messages(self, clang_tidy_output):
+  def check_fixes(self):
+    self.check_file_fixes(self.temp_file_name, self.input_file_name)
+    for header in self.check_headers:
+      self.check_file_fixes(self.temp_header_name(header), self.input_header_name(header))
+
+  def check_file_messages(self, messages_file, clang_tidy_output, input_file):
     if self.has_check_messages:
-      messages_file = self.temp_file_name + '.msg'
+      messages_file += '.msg'
       write_file(messages_file, clang_tidy_output)
-      try_run(['FileCheck', '-input-file=' + messages_file, self.input_file_name,
+      try_run(['FileCheck', '-input-file=' + messages_file, input_file,
              '-check-prefixes=' + ','.join(self.messages.prefixes),
              '-implicit-check-not={{warning|error}}:'])
 
-  def check_notes(self, clang_tidy_output):
+  def check_messages(self, clang_tidy_output):
+    self.check_file_messages(self.temp_file_name, clang_tidy_output, self.input_file_name)
+    for header in self.check_headers:
+      self.check_file_messages(self.temp_header_name(header), clang_tidy_output, self.input_header_name(header))
+
+  def check_file_notes(self, notes_file, clang_tidy_output, input_file):
     if self.has_check_notes:
-      notes_file = self.temp_file_name + '.notes'
       filtered_output = [line for line in clang_tidy_output.splitlines()
                          if not ("note: FIX-IT applied" in line)]
+      notes_file += '.notes'
       write_file(notes_file, '\n'.join(filtered_output))
-      try_run(['FileCheck', '-input-file=' + notes_file, self.input_file_name,
+      try_run(['FileCheck', '-input-file=' + notes_file, input_file,
              '-check-prefixes=' + ','.join(self.notes.prefixes),
              '-implicit-check-not={{note|warning|error}}:'])
+
+  def check_notes(self, clang_tidy_output):
+    self.check_file_notes(self.temp_file_name, clang_tidy_output, self.input_file_name)
+    for header in self.check_headers:
+      self.check_file_notes(self.temp_header_name(header), clang_tidy_output, self.input_header_name(header))
 
   def run(self):
     self.read_input()
