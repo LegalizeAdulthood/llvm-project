@@ -72,17 +72,12 @@ class MessagePrefix:
     return self.has_message
 
 
-class CheckRunner:
-  def __init__(self, args, extra_args):
-    self.resource_dir = args.resource_dir
+class FileChecker:
+  def __init__(self, args):
     self.assume_file_name = args.assume_filename
     self.input_file_name = args.input_file_name
-    self.check_name = args.check_name
     self.temp_file_name = args.temp_file_name
-    self.original_file_name = self.temp_file_name + ".orig"
-    self.expect_clang_tidy_error = args.expect_clang_tidy_error
-    self.std = args.std
-    self.check_suffix = args.check_suffix
+    self.original_file_name = self.temp_file_name + '.orig'
     self.input_text = ''
     self.has_check_fixes = False
     self.has_check_messages = False
@@ -96,6 +91,74 @@ class CheckRunner:
     if extension not in ['.c', '.hpp', '.m', '.mm']:
       extension = '.cpp'
     self.temp_file_name = self.temp_file_name + extension
+    self.extension = extension
+
+  def read_input(self):
+    with open(self.input_file_name, 'r', encoding='utf-8') as input_file:
+      self.input_text = input_file.read()
+
+  def get_prefixes(self, suffix):
+    has_check_fix = self.fixes.check(suffix, self.input_text)
+    self.has_check_fixes = self.has_check_fixes or has_check_fix
+
+    has_check_message = self.messages.check(suffix, self.input_text)
+    self.has_check_messages = self.has_check_messages or has_check_message
+
+    has_check_note = self.notes.check(suffix, self.input_text)
+    self.has_check_notes = self.has_check_notes or has_check_note
+
+    if has_check_note and has_check_message:
+      sys.exit('Please use either %s or %s but not both' %
+               (self.notes.prefix, self.messages.prefix))
+
+    if not has_check_fix and not has_check_message and not has_check_note:
+      sys.exit('%s, %s or %s not found in the input' %
+               (self.fixes.prefix, self.messages.prefix, self.notes.prefix))
+
+  def prepare_test_inputs(self):
+    # Remove the contents of the CHECK lines to avoid CHECKs matching on
+    # themselves.  We need to keep the comments to preserve line numbers while
+    # avoiding empty lines which could potentially trigger formatting-related
+    # checks.
+    cleaned_test = re.sub('// *CHECK-[A-Z0-9\\-]*:[^\r\n]*', '//', self.input_text)
+    write_file(self.temp_file_name, cleaned_test)
+    write_file(self.original_file_name, cleaned_test)
+
+  def check_fixes(self):
+    if self.has_check_fixes:
+      try_run(['FileCheck', '-input-file=' + self.temp_file_name, self.input_file_name,
+              '-check-prefixes=' + ','.join(self.fixes.prefixes), '-strict-whitespace'])
+
+  def check_messages(self, clang_tidy_output):
+    if self.has_check_messages:
+      messages_file = self.temp_file_name + '.msg'
+      write_file(messages_file, clang_tidy_output)
+      try_run(['FileCheck', '-input-file=' + messages_file, self.input_file_name,
+             '-check-prefixes=' + ','.join(self.messages.prefixes),
+             '-implicit-check-not={{warning|error}}:'])
+
+  def check_notes(self, clang_tidy_output):
+    if self.has_check_notes:
+      notes_file = self.temp_file_name + '.notes'
+      filtered_output = [line for line in clang_tidy_output.splitlines()
+                         if not ('note: FIX-IT applied' in line)]
+      write_file(notes_file, '\n'.join(filtered_output))
+      try_run(['FileCheck', '-input-file=' + notes_file, self.input_file_name,
+             '-check-prefixes=' + ','.join(self.notes.prefixes),
+             '-implicit-check-not={{note|warning|error}}:'])
+
+  def diff_original_temp(self):
+    return try_run(['diff', '-u', self.original_file_name, self.temp_file_name], False)
+
+
+class CheckRunner:
+  def __init__(self, args, extra_args):
+    self.main_file = FileChecker(args)
+    self.resource_dir = args.resource_dir
+    self.check_name = args.check_name
+    self.expect_clang_tidy_error = args.expect_clang_tidy_error
+    self.std = args.std
+    self.check_suffix = args.check_suffix
 
     self.clang_extra_args = []
     self.clang_tidy_extra_args = extra_args
@@ -112,11 +175,11 @@ class CheckRunner:
         for arg in self.clang_tidy_extra_args]):
       self.clang_tidy_extra_args.append('--config={}')
 
-    if extension in ['.m', '.mm']:
+    if self.main_file.extension in ['.m', '.mm']:
       self.clang_extra_args = ['-fobjc-abi-version=2', '-fobjc-arc', '-fblocks'] + \
           self.clang_extra_args
 
-    if extension in ['.cpp', '.hpp', '.mm']:
+    if self.main_file.extension in ['.cpp', '.hpp', '.mm']:
       self.clang_extra_args.append('-std=' + self.std)
 
     # Tests should not rely on STL being available, and instead provide mock
@@ -126,45 +189,17 @@ class CheckRunner:
     if self.resource_dir is not None:
       self.clang_extra_args.append('-resource-dir=%s' % self.resource_dir)
 
-  def read_input(self):
-    with open(self.input_file_name, 'r', encoding='utf-8') as input_file:
-      self.input_text = input_file.read()
-
   def get_prefixes(self):
     for suffix in self.check_suffix:
-      file_check_suffix = ('-' + suffix) if suffix else ''
+      if suffix:
+        suffix = ('-' + suffix)
+      self.main_file.get_prefixes(suffix)
 
-      has_check_fix = self.fixes.check(file_check_suffix, self.input_text)
-      self.has_check_fixes = self.has_check_fixes or has_check_fix
-
-      has_check_message = self.messages.check(file_check_suffix, self.input_text)
-      self.has_check_messages = self.has_check_messages or has_check_message
-
-      has_check_note = self.notes.check(file_check_suffix, self.input_text)
-      self.has_check_notes = self.has_check_notes or has_check_note
-
-      if has_check_note and has_check_message:
-        sys.exit('Please use either %s or %s but not both' %
-          (self.notes.prefix, self.messages.prefix))
-
-      if not has_check_fix and not has_check_message and not has_check_note:
-        sys.exit('%s, %s or %s not found in the input' %
-          (self.fixes.prefix, self.messages.prefix, self.notes.prefix))
-
-    assert self.has_check_fixes or self.has_check_messages or self.has_check_notes
-
-  def prepare_test_inputs(self):
-    # Remove the contents of the CHECK lines to avoid CHECKs matching on
-    # themselves.  We need to keep the comments to preserve line numbers while
-    # avoiding empty lines which could potentially trigger formatting-related
-    # checks.
-    cleaned_test = re.sub('// *CHECK-[A-Z0-9\\-]*:[^\r\n]*', '//', self.input_text)
-    write_file(self.temp_file_name, cleaned_test)
-    write_file(self.original_file_name, cleaned_test)
+    assert self.main_file.has_check_fixes or self.main_file.has_check_messages or self.main_file.has_check_notes
 
   def run_clang_tidy(self):
-    args = ['clang-tidy', self.temp_file_name, '-fix', '--checks=-*,' + self.check_name] + \
-        self.clang_tidy_extra_args + ['--'] + self.clang_extra_args
+    args = ['clang-tidy', self.main_file.temp_file_name, '-fix', '--checks=-*,' + self.check_name] + \
+           self.clang_tidy_extra_args + ['--'] + self.clang_extra_args
     if self.expect_clang_tidy_error:
       args.insert(0, 'not')
     print('Running ' + repr(args) + '...')
@@ -173,44 +208,20 @@ class CheckRunner:
     print(clang_tidy_output.encode(sys.stdout.encoding, errors="replace").decode(sys.stdout.encoding))
     print('------------------------------------------------------------------')
 
-    diff_output = try_run(['diff', '-u', self.original_file_name, self.temp_file_name], False)
+    diff_output = self.main_file.diff_original_temp()
     print('------------------------------ Fixes -----------------------------')
     print(diff_output)
     print('------------------------------------------------------------------')
     return clang_tidy_output
 
-  def check_fixes(self):
-    if self.has_check_fixes:
-      try_run(['FileCheck', '-input-file=' + self.temp_file_name, self.input_file_name,
-              '-check-prefixes=' + ','.join(self.fixes.prefixes),
-              '-strict-whitespace'])
-
-  def check_messages(self, clang_tidy_output):
-    if self.has_check_messages:
-      messages_file = self.temp_file_name + '.msg'
-      write_file(messages_file, clang_tidy_output)
-      try_run(['FileCheck', '-input-file=' + messages_file, self.input_file_name,
-             '-check-prefixes=' + ','.join(self.messages.prefixes),
-             '-implicit-check-not={{warning|error}}:'])
-
-  def check_notes(self, clang_tidy_output):
-    if self.has_check_notes:
-      notes_file = self.temp_file_name + '.notes'
-      filtered_output = [line for line in clang_tidy_output.splitlines()
-                         if not ("note: FIX-IT applied" in line)]
-      write_file(notes_file, '\n'.join(filtered_output))
-      try_run(['FileCheck', '-input-file=' + notes_file, self.input_file_name,
-             '-check-prefixes=' + ','.join(self.notes.prefixes),
-             '-implicit-check-not={{note|warning|error}}:'])
-
   def run(self):
-    self.read_input()
+    self.main_file.read_input()
     self.get_prefixes()
-    self.prepare_test_inputs()
+    self.main_file.prepare_test_inputs()
     clang_tidy_output = self.run_clang_tidy()
-    self.check_fixes()
-    self.check_messages(clang_tidy_output)
-    self.check_notes(clang_tidy_output)
+    self.main_file.check_fixes()
+    self.main_file.check_messages(clang_tidy_output)
+    self.main_file.check_notes(clang_tidy_output)
 
 
 def expand_std(std):
