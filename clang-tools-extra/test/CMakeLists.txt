@@ -27,6 +27,22 @@ configure_lit_site_cfg(
   ${CMAKE_CURRENT_SOURCE_DIR}/Unit/lit.cfg.py
   )
 
+option(CLANG_TOOLS_TEST_USE_VG "Run Clang tools' tests under Valgrind" OFF)
+if(CLANG_TOOLS_TEST_USE_VG)
+  set(CLANG_TOOLS_TEST_EXTRA_ARGS ${CLANG_TEST_EXTRA_ARGS} "--vg")
+endif()
+
+add_subdirectory(clang-apply-replacements)
+add_subdirectory(clang-change-namespace)
+add_subdirectory(clang-doc)
+add_subdirectory(clang-include-fixer)
+add_subdirectory(clang-move)
+add_subdirectory(clang-query)
+add_subdirectory(clang-reorder-fields)
+add_subdirectory(clang-tidy)
+add_subdirectory(modularize)
+add_subdirectory(pp-trace)
+
 set(CLANG_TOOLS_TEST_DEPS
   # For the clang-apply-replacements test that uses clang-rename.
   clang-rename
