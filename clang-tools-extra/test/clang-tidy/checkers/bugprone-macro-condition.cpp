@@ -48,3 +48,13 @@ void f5()
   foo();
 }
 #endif
+
+#ifdef USE_FOO
+#if USE_FOO
+void f6()
+{
+  extern void foo();
+  foo();
+}
+#endif
+#endif
