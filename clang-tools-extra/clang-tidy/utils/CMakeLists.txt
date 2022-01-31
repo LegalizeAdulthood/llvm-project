@@ -22,6 +22,7 @@ add_clang_library(clangTidyUtils
   Matchers.cpp
   NamespaceAliaser.cpp
   OptionsUtils.cpp
+  PPTree.cpp
   RenamerClangTidyCheck.cpp
   TransformerClangTidyCheck.cpp
   TypeTraits.cpp
