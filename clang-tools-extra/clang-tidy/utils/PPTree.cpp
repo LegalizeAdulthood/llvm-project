@@ -188,7 +188,6 @@ void PPTreeBuilderCallbacks::Ifndef(SourceLocation Loc,
 }
 
 void PPTreeBuilderCallbacks::Else(SourceLocation Loc, SourceLocation IfLoc) {
-  popDirectiveStack();
   auto Directive{std::make_unique<PPElse>(Loc, IfLoc)};
   PPDirectiveList *NewContext = &Directive->Directives;
   popDirectiveStack();
