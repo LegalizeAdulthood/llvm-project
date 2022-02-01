@@ -41,20 +41,7 @@ public:
   void PragmaDebug(SourceLocation Loc, StringRef DebugType) override;
   void PragmaMessage(SourceLocation Loc, StringRef Namespace,
                      PragmaMessageKind Kind, StringRef Str) override;
-  void PragmaDiagnosticPush(SourceLocation Loc, StringRef Namespace) override;
-  void PragmaDiagnosticPop(SourceLocation Loc, StringRef Namespace) override;
-  void PragmaDiagnostic(SourceLocation Loc, StringRef Namespace,
-                        diag::Severity mapping, StringRef Str) override;
-  void PragmaOpenCLExtension(SourceLocation NameLoc, const IdentifierInfo *Name,
-                             SourceLocation StateLoc, unsigned State) override;
-  void PragmaWarning(SourceLocation Loc, PragmaWarningSpecifier WarningSpec,
-                     ArrayRef<int> Ids) override;
-  void PragmaWarningPush(SourceLocation Loc, int Level) override;
-  void PragmaWarningPop(SourceLocation Loc) override;
-  void PragmaExecCharsetPush(SourceLocation Loc, StringRef Str) override;
-  void PragmaExecCharsetPop(SourceLocation Loc) override;
-  void PragmaAssumeNonNullBegin(SourceLocation Loc) override;
-  void PragmaAssumeNonNullEnd(SourceLocation Loc) override;
+
   void MacroExpands(const Token &MacroNameTok, const MacroDefinition &MD,
                     SourceRange Range, const MacroArgs *Args) override;
   void MacroDefined(const Token &MacroNameTok,
@@ -63,34 +50,32 @@ public:
                       const MacroDirective *Undef) override;
   void Defined(const Token &MacroNameTok, const MacroDefinition &MD,
                SourceRange Range) override;
-  void HasInclude(SourceLocation Loc, StringRef FileName, bool IsAngled,
-                  Optional<FileEntryRef> File,
-                  SrcMgr::CharacteristicKind FileType) override;
-  void SourceRangeSkipped(SourceRange Range, SourceLocation EndifLoc) override;
+
   void If(SourceLocation Loc, SourceRange ConditionRange,
           ConditionValueKind ConditionValue) override;
-  void Elif(SourceLocation Loc, SourceRange ConditionRange,
-            ConditionValueKind ConditionValue, SourceLocation IfLoc) override;
   void Ifdef(SourceLocation Loc, const Token &MacroNameTok,
              const MacroDefinition &MD) override;
-  void Elifdef(SourceLocation Loc, const Token &MacroNameTok,
-               const MacroDefinition &MD) override;
-  void Elifdef(SourceLocation Loc, SourceRange ConditionRange,
-               SourceLocation IfLoc) override;
   void Ifndef(SourceLocation Loc, const Token &MacroNameTok,
               const MacroDefinition &MD) override;
+  void Else(SourceLocation Loc, SourceLocation IfLoc) override;
+  void Elif(SourceLocation Loc, SourceRange ConditionRange,
+            ConditionValueKind ConditionValue, SourceLocation IfLoc) override;
+  void Elifdef(SourceLocation Loc, const Token &MacroNameTok,
+               const MacroDefinition &MD) override;
   void Elifndef(SourceLocation Loc, const Token &MacroNameTok,
                 const MacroDefinition &MD) override;
-  void Elifndef(SourceLocation Loc, SourceRange ConditionRange,
-                SourceLocation IfLoc) override;
-  void Else(SourceLocation Loc, SourceLocation IfLoc) override;
   void Endif(SourceLocation Loc, SourceLocation IfLoc) override;
+  void pushDirectiveStack(PPDirectiveList *List);
 
 private:
+  void popDirectiveStack();
+
   PPTreeConsumer *Callback;
   const SourceManager &SM;
   const LangOptions &LangOpts;
   PPTree Tree;
+  std::vector<PPDirectiveList *> DirectiveStack{&Tree.Directives};
+  PPDirectiveList *Directives = DirectiveStack.back();
 };
 
 void PPTreeBuilderCallbacks::InclusionDirective(
@@ -98,202 +83,167 @@ void PPTreeBuilderCallbacks::InclusionDirective(
     bool IsAngled, CharSourceRange FilenameRange, const FileEntry *File,
     StringRef SearchPath, StringRef RelativePath, const Module *Imported,
     SrcMgr::CharacteristicKind FileType) {
-  auto Inclusion{std::make_unique<PPInclusion>(
+  auto Directive{std::make_unique<PPInclusion>(
       HashLoc, IncludeTok, FileName, IsAngled, FilenameRange, File, SearchPath,
       RelativePath, Imported, FileType)};
-  Tree.Directives.emplace_back(Inclusion.release());
+  Directives->add(Directive.release());
 }
 
-void PPTreeBuilderCallbacks::EndOfMainFile() { Callback->endOfMainFile(&Tree); }
+void PPTreeBuilderCallbacks::EndOfMainFile() {
+  Callback->endOfMainFile(&Tree);
+}
 
 void PPTreeBuilderCallbacks::Ident(SourceLocation Loc, StringRef Str) {
-  auto Ident{std::make_unique<PPIdent>(Loc, Str)};
-  Tree.Directives.emplace_back(Ident.release());
+  auto Directive{std::make_unique<PPIdent>(Loc, Str)};
+  Directives->add(Directive.release());
 }
 
 void PPTreeBuilderCallbacks::PragmaDirective(SourceLocation Loc,
                                              PragmaIntroducerKind Introducer) {
-  auto Pragma{std::make_unique<PPPragma>(Loc, Introducer)};
-  Tree.Directives.emplace_back(Pragma.release());
+  auto Directive{std::make_unique<PPPragma>(Loc, Introducer)};
+  Directives->add(Directive.release());
 }
 
 void PPTreeBuilderCallbacks::PragmaComment(SourceLocation Loc,
                                            const IdentifierInfo *Kind,
                                            StringRef Str) {
-  auto PragmaComment{std::make_unique<PPPragmaComment>(Loc, Kind, Str)};
-  Tree.Directives.emplace_back(PragmaComment.release());
+  auto Directive{std::make_unique<PPPragmaComment>(Loc, Kind, Str)};
+  Directives->add(Directive.release());
 }
 
 void PPTreeBuilderCallbacks::PragmaMark(SourceLocation Loc, StringRef Trivia) {
-  auto PragmaMark{std::make_unique<PPPragmaMark>(Loc, Trivia)};
-  Tree.Directives.emplace_back(PragmaMark.release());
+  auto Directive{std::make_unique<PPPragmaMark>(Loc, Trivia)};
+  Directives->add(Directive.release());
 }
 
 void PPTreeBuilderCallbacks::PragmaDetectMismatch(SourceLocation Loc,
                                                   StringRef Name,
                                                   StringRef Value) {
-  auto PragmaDetectMismatch{std::make_unique<PPPragmaDetectMismatch>(Loc, Name, Value)};
-  Tree.Directives.emplace_back(PragmaDetectMismatch.release());
+  auto Directive{std::make_unique<PPPragmaDetectMismatch>(Loc, Name, Value)};
+  Directives->add(Directive.release());
 }
 
 void PPTreeBuilderCallbacks::PragmaDebug(SourceLocation Loc,
                                          StringRef DebugType) {
-  PPCallbacks::PragmaDebug(Loc, DebugType);
+  auto Directive{std::make_unique<PPPragmaDebug>(Loc, DebugType)};
+  Directives->add(Directive.release());
 }
 
 void PPTreeBuilderCallbacks::PragmaMessage(SourceLocation Loc,
                                            StringRef Namespace,
                                            PragmaMessageKind Kind,
                                            StringRef Str) {
-  PPCallbacks::PragmaMessage(Loc, Namespace, Kind, Str);
-}
-
-void PPTreeBuilderCallbacks::PragmaDiagnosticPush(SourceLocation Loc,
-                                                  StringRef Namespace) {
-  PPCallbacks::PragmaDiagnosticPush(Loc, Namespace);
-}
-
-void PPTreeBuilderCallbacks::PragmaDiagnosticPop(SourceLocation Loc,
-                                                 StringRef Namespace) {
-  PPCallbacks::PragmaDiagnosticPop(Loc, Namespace);
-}
-
-void PPTreeBuilderCallbacks::PragmaDiagnostic(SourceLocation Loc,
-                                              StringRef Namespace,
-                                              diag::Severity mapping,
-                                              StringRef Str) {
-  PPCallbacks::PragmaDiagnostic(Loc, Namespace, mapping, Str);
-}
-
-void PPTreeBuilderCallbacks::PragmaOpenCLExtension(SourceLocation NameLoc,
-                                                   const IdentifierInfo *Name,
-                                                   SourceLocation StateLoc,
-                                                   unsigned State) {
-  PPCallbacks::PragmaOpenCLExtension(NameLoc, Name, StateLoc, State);
-}
-
-void PPTreeBuilderCallbacks::PragmaWarning(SourceLocation Loc,
-                                           PragmaWarningSpecifier WarningSpec,
-                                           ArrayRef<int> Ids) {
-  PPCallbacks::PragmaWarning(Loc, WarningSpec, Ids);
-}
-
-void PPTreeBuilderCallbacks::PragmaWarningPush(SourceLocation Loc, int Level) {
-  PPCallbacks::PragmaWarningPush(Loc, Level);
-}
-
-void PPTreeBuilderCallbacks::PragmaWarningPop(SourceLocation Loc) {
-  PPCallbacks::PragmaWarningPop(Loc);
-}
-
-void PPTreeBuilderCallbacks::PragmaExecCharsetPush(SourceLocation Loc,
-                                                   StringRef Str) {
-  PPCallbacks::PragmaExecCharsetPush(Loc, Str);
-}
-
-void PPTreeBuilderCallbacks::PragmaExecCharsetPop(SourceLocation Loc) {
-  PPCallbacks::PragmaExecCharsetPop(Loc);
-}
-
-void PPTreeBuilderCallbacks::PragmaAssumeNonNullBegin(SourceLocation Loc) {
-  PPCallbacks::PragmaAssumeNonNullBegin(Loc);
-}
-
-void PPTreeBuilderCallbacks::PragmaAssumeNonNullEnd(SourceLocation Loc) {
-  PPCallbacks::PragmaAssumeNonNullEnd(Loc);
+  auto Directive{std::make_unique<PPPragmaMessage>(Loc, Namespace, Kind, Str)};
+  Directives->add(Directive.release());
 }
 
 void PPTreeBuilderCallbacks::MacroExpands(const Token &MacroNameTok,
                                           const MacroDefinition &MD,
                                           SourceRange Range,
                                           const MacroArgs *Args) {
-  PPCallbacks::MacroExpands(MacroNameTok, MD, Range, Args);
 }
 
 void PPTreeBuilderCallbacks::MacroDefined(const Token &MacroNameTok,
                                           const MacroDirective *MD) {
-  PPCallbacks::MacroDefined(MacroNameTok, MD);
+  auto Directive{std::make_unique<PPMacroDefined>(MacroNameTok, MD)};
+  Directives->add(Directive.release());
 }
 
 void PPTreeBuilderCallbacks::MacroUndefined(const Token &MacroNameTok,
                                             const MacroDefinition &MD,
                                             const MacroDirective *Undef) {
-  PPCallbacks::MacroUndefined(MacroNameTok, MD, Undef);
+  auto Directive{std::make_unique<PPMacroUndefined>(MacroNameTok, &MD, Undef)};
+  Directives->add(Directive.release());
 }
 
 void PPTreeBuilderCallbacks::Defined(const Token &MacroNameTok,
                                      const MacroDefinition &MD,
                                      SourceRange Range) {
-  PPCallbacks::Defined(MacroNameTok, MD, Range);
-}
-
-void PPTreeBuilderCallbacks::HasInclude(SourceLocation Loc, StringRef FileName,
-                                        bool IsAngled,
-                                        Optional<FileEntryRef> File,
-                                        SrcMgr::CharacteristicKind FileType) {
-  PPCallbacks::HasInclude(Loc, FileName, IsAngled, File, FileType);
-}
-
-void PPTreeBuilderCallbacks::SourceRangeSkipped(SourceRange Range,
-                                                SourceLocation EndifLoc) {
-  PPCallbacks::SourceRangeSkipped(Range, EndifLoc);
 }
 
 void PPTreeBuilderCallbacks::If(SourceLocation Loc, SourceRange ConditionRange,
                                 ConditionValueKind ConditionValue) {
-  PPCallbacks::If(Loc, ConditionRange, ConditionValue);
+  auto Directive{std::make_unique<PPIf>(Loc, ConditionRange, ConditionValue)};
+  PPDirectiveList *NewContext = &Directive->Directives;
+  Directives->add(Directive.release());
+  pushDirectiveStack(NewContext);
+}
+
+void PPTreeBuilderCallbacks::Ifdef(SourceLocation Loc,
+                                   const Token &MacroNameTok,
+                                   const MacroDefinition &MD) {
+  auto Directive{std::make_unique<PPIfDef>(Loc, MacroNameTok, MD)};
+  PPDirectiveList *NewContext = &Directive->Directives;
+  Directives->add(Directive.release());
+  pushDirectiveStack(NewContext);
+}
+
+void PPTreeBuilderCallbacks::Ifndef(SourceLocation Loc,
+                                    const Token &MacroNameTok,
+                                    const MacroDefinition &MD) {
+  auto Directive{std::make_unique<PPIfNotDef>(Loc, MacroNameTok, MD)};
+  PPDirectiveList *NewContext = &Directive->Directives;
+  Directives->add(Directive.release());
+  pushDirectiveStack(NewContext);
+}
+
+void PPTreeBuilderCallbacks::Else(SourceLocation Loc, SourceLocation IfLoc) {
+  popDirectiveStack();
+  auto Directive{std::make_unique<PPElse>(Loc, IfLoc)};
+  PPDirectiveList *NewContext = &Directive->Directives;
+  popDirectiveStack();
+  Directives->add(Directive.release());
+  pushDirectiveStack(NewContext);
 }
 
 void PPTreeBuilderCallbacks::Elif(SourceLocation Loc,
                                   SourceRange ConditionRange,
                                   ConditionValueKind ConditionValue,
                                   SourceLocation IfLoc) {
-  PPCallbacks::Elif(Loc, ConditionRange, ConditionValue, IfLoc);
-}
-
-void PPTreeBuilderCallbacks::Ifdef(SourceLocation Loc,
-                                   const Token &MacroNameTok,
-                                   const MacroDefinition &MD) {
-  PPCallbacks::Ifdef(Loc, MacroNameTok, MD);
+  auto Directive{std::make_unique<PPElseIf>(Loc, ConditionRange, ConditionValue, IfLoc)};
+  PPDirectiveList *NewContext = &Directive->Directives;
+  popDirectiveStack();
+  Directives->add(Directive.release());
+  pushDirectiveStack(NewContext);
 }
 
 void PPTreeBuilderCallbacks::Elifdef(SourceLocation Loc,
                                      const Token &MacroNameTok,
                                      const MacroDefinition &MD) {
-  PPCallbacks::Elifdef(Loc, MacroNameTok, MD);
-}
-
-void PPTreeBuilderCallbacks::Elifdef(SourceLocation Loc,
-                                     SourceRange ConditionRange,
-                                     SourceLocation IfLoc) {
-  PPCallbacks::Elifdef(Loc, ConditionRange, IfLoc);
-}
-
-void PPTreeBuilderCallbacks::Ifndef(SourceLocation Loc,
-                                    const Token &MacroNameTok,
-                                    const MacroDefinition &MD) {
-  PPCallbacks::Ifndef(Loc, MacroNameTok, MD);
+  auto Directive{std::make_unique<PPElseIfDef>(Loc, MacroNameTok, MD)};
+  PPDirectiveList *NewContext = &Directive->Directives;
+  popDirectiveStack();
+  Directives->add(Directive.release());
+  pushDirectiveStack(NewContext);
 }
 
 void PPTreeBuilderCallbacks::Elifndef(SourceLocation Loc,
                                       const Token &MacroNameTok,
                                       const MacroDefinition &MD) {
-  PPCallbacks::Elifndef(Loc, MacroNameTok, MD);
-}
-
-void PPTreeBuilderCallbacks::Elifndef(SourceLocation Loc,
-                                      SourceRange ConditionRange,
-                                      SourceLocation IfLoc) {
-  PPCallbacks::Elifndef(Loc, ConditionRange, IfLoc);
-}
-
-void PPTreeBuilderCallbacks::Else(SourceLocation Loc, SourceLocation IfLoc) {
-  PPCallbacks::Else(Loc, IfLoc);
+  auto Directive{std::make_unique<PPElseIfNotDef>(Loc, MacroNameTok, MD)};
+  PPDirectiveList *NewContext = &Directive->Directives;
+  popDirectiveStack();
+  Directives->add(Directive.release());
+  pushDirectiveStack(NewContext);
 }
 
 void PPTreeBuilderCallbacks::Endif(SourceLocation Loc, SourceLocation IfLoc) {
-  PPCallbacks::Endif(Loc, IfLoc);
+  popDirectiveStack();
+  auto Directive{std::make_unique<PPEndIf>(Loc, IfLoc)};
+  Directives->add(Directive.release());
 }
+
+void PPTreeBuilderCallbacks::pushDirectiveStack(PPDirectiveList *List) {
+  DirectiveStack.push_back(List);
+  Directives = DirectiveStack.back();
+}
+
+void PPTreeBuilderCallbacks::popDirectiveStack() {
+  assert(DirectiveStack.size() > 1);
+  DirectiveStack.pop_back();
+  Directives = DirectiveStack.back();
+}
+
 } // namespace
 
 PPTreeBuilder::PPTreeBuilder(PPTreeConsumer *Callback, Preprocessor *PP,
