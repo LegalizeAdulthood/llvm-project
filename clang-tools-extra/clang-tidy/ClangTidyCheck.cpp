@@ -11,15 +11,36 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/YAMLParser.h"
+#include "utils/PPTree.h"
+
+#include <iostream>
 #include <optional>
 
 namespace clang::tidy {
+
+namespace {
+class CheckPPTreeConsumer : public utils::PPTreeConsumer {
+public:
+  void endOfMainFile(const utils::PPTree *Tree) override {
+    std::cout << "End of main file: " << Tree->Directives.size() << " directives.\n";
+  }
+};
+
+}
+
+CheckPPTreeConsumer TreeConsumer;
+static std::unique_ptr<utils::PPTreeBuilder> TreeBuilder;
 
 ClangTidyCheck::ClangTidyCheck(StringRef CheckName, ClangTidyContext *Context)
     : CheckName(CheckName), Context(Context),
       Options(CheckName, Context->getOptions().CheckOptions, Context) {
   assert(Context != nullptr);
   assert(!CheckName.empty());
+}
+
+void ClangTidyCheck::registerPPCallbacks(const SourceManager &SM,
+    Preprocessor *PP, Preprocessor *ModuleExpanderPP) {
+  TreeBuilder.reset(new utils::PPTreeBuilder(&TreeConsumer, PP, SM, getLangOpts()));
 }
 
 DiagnosticBuilder ClangTidyCheck::diag(SourceLocation Loc,

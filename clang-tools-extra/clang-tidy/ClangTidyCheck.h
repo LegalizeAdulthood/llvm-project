@@ -88,7 +88,7 @@ public:
   ///    When modules are not enabled ModuleExpanderPP just points to the real
   ///    preprocessor.
   virtual void registerPPCallbacks(const SourceManager &SM, Preprocessor *PP,
-                                   Preprocessor *ModuleExpanderPP) {}
+                                   Preprocessor *ModuleExpanderPP);
 
   /// Override this to register AST matchers with \p Finder.
   ///
