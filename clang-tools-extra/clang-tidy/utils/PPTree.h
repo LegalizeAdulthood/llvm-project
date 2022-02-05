@@ -17,8 +17,38 @@ namespace clang {
 namespace tidy {
 namespace utils {
 
-struct PPDirective {
+class PPDirective {
+public:
+  enum DirectiveKind {
+    DK_Inclusion,
+    DK_Ident,
+    DK_Pragma,
+    DK_PragmaComment,
+    DK_PragmaMark,
+    DK_PragmaDetectMismatch,
+    DK_PragmaDebug,
+    DK_PragmaMessage,
+    DK_MacroDefined,
+    DK_MacroUndefined,
+    DK_If,
+    DK_Else,
+    DK_ElseIf,
+    DK_IfDef,
+    DK_IfNotDef,
+    DK_ElseIfDef,
+    DK_ElseIfNotDef,
+    DK_EndIf,
+  };
+
   virtual ~PPDirective() = default;
+
+  DirectiveKind getKind() const { return Kind; }
+
+protected:
+  PPDirective(DirectiveKind Kind) : Kind(Kind) {}
+
+private:
+  DirectiveKind Kind;
 };
 
 using PPDirectiveStorage = std::vector<PPDirective *>;
@@ -36,7 +66,9 @@ public:
   PPDirectiveStorage::iterator begin() { return Directives.begin(); }
   PPDirectiveStorage::iterator end() { return Directives.end(); }
 
-  PPDirectiveStorage::const_iterator begin() const { return Directives.begin(); }
+  PPDirectiveStorage::const_iterator begin() const {
+    return Directives.begin();
+  }
   PPDirectiveStorage::const_iterator end() const { return Directives.end(); }
 
   size_t size() const { return Directives.size(); }
@@ -45,16 +77,18 @@ private:
   PPDirectiveStorage Directives;
 };
 
-struct PPInclusion : PPDirective {
+class PPInclusion : public PPDirective {
+public:
   PPInclusion(SourceLocation HashLoc, Token IncludeTok, StringRef FileName,
               bool IsAngled, CharSourceRange FilenameRange,
               const FileEntry *File, StringRef SearchPath,
               StringRef RelativePath, const Module *Imported,
               SrcMgr::CharacteristicKind FileType)
-      : HashLoc(HashLoc), IncludeTok(IncludeTok), FileName(FileName.str()),
-        IsAngled(IsAngled), FilenameRange(FilenameRange), File(File),
-        SearchPath(SearchPath.str()), RelativePath(RelativePath.str()),
-        Imported(Imported), FileType(FileType) {}
+      : PPDirective(DK_Inclusion), HashLoc(HashLoc), IncludeTok(IncludeTok),
+        FileName(FileName.str()), IsAngled(IsAngled),
+        FilenameRange(FilenameRange), File(File), SearchPath(SearchPath.str()),
+        RelativePath(RelativePath.str()), Imported(Imported),
+        FileType(FileType) {}
 
   SourceLocation HashLoc;
   Token IncludeTok;
@@ -68,59 +102,69 @@ struct PPInclusion : PPDirective {
   SrcMgr::CharacteristicKind FileType;
 };
 
-struct PPIdent : PPDirective {
-  PPIdent(SourceLocation Loc, StringRef Str) : Loc(Loc), Str(Str.str()) {}
+class PPIdent : public PPDirective {
+public:
+  PPIdent(SourceLocation Loc, StringRef Str)
+      : PPDirective(DK_Ident), Loc(Loc), Str(Str.str()) {}
 
   SourceLocation Loc;
   std::string Str;
 };
 
-struct PPPragma : PPDirective {
+class PPPragma : public PPDirective {
+public:
   PPPragma(SourceLocation Loc, PragmaIntroducerKind Introducer)
-      : Loc(Loc), Introducer(Introducer) {}
+      : PPDirective(DK_Pragma), Loc(Loc), Introducer(Introducer) {}
 
   SourceLocation Loc;
   PragmaIntroducerKind Introducer;
 };
 
-struct PPPragmaComment : PPDirective {
-  PPPragmaComment(SourceLocation Loc, const IdentifierInfo *Kind,
-      StringRef Str) : Loc(Loc), Kind(Kind), Str(Str.str()) {}
+class PPPragmaComment : public PPDirective {
+public:
+  PPPragmaComment(SourceLocation Loc, const IdentifierInfo *Kind, StringRef Str)
+      : PPDirective(DK_PragmaComment), Loc(Loc), Kind(Kind), Str(Str.str()) {}
 
   SourceLocation Loc;
   const IdentifierInfo *Kind;
   std::string Str;
 };
 
-struct PPPragmaMark : PPDirective {
+class PPPragmaMark : public PPDirective {
+public:
   PPPragmaMark(SourceLocation Loc, StringRef Trivia)
-      : Loc(Loc), Trivia(Trivia.str()) {}
+      : PPDirective(DK_PragmaMark), Loc(Loc), Trivia(Trivia.str()) {}
 
   SourceLocation Loc;
   std::string Trivia;
 };
 
-struct PPPragmaDetectMismatch : PPDirective {
+class PPPragmaDetectMismatch : public PPDirective {
+public:
   PPPragmaDetectMismatch(SourceLocation Loc, StringRef Name, StringRef Value)
-      : Loc(Loc), Name(Name.str()), Value(Value.str()) {}
+      : PPDirective(DK_PragmaDetectMismatch), Loc(Loc), Name(Name.str()),
+        Value(Value.str()) {}
 
   SourceLocation Loc;
   std::string Name;
   std::string Value;
 };
 
-struct PPPragmaDebug : PPDirective {
+class PPPragmaDebug : public PPDirective {
+public:
   PPPragmaDebug(SourceLocation Loc, StringRef DebugType)
-      : Loc(Loc), DebugType(DebugType.str()) {}
+      : PPDirective(DK_PragmaDebug), Loc(Loc), DebugType(DebugType.str()) {}
 
   SourceLocation Loc;
   std::string DebugType;
 };
 
-struct PPPragmaMessage : PPDirective {
+class PPPragmaMessage : public PPDirective {
+public:
   PPPragmaMessage(SourceLocation Loc, StringRef Namespace,
                   PPCallbacks::PragmaMessageKind Kind, StringRef Str)
-      : Loc(Loc), Namespace(Namespace.str()), Kind(Kind), Str(Str.str()) {}
+      : PPDirective(DK_PragmaMessage), Loc(Loc), Namespace(Namespace.str()),
+        Kind(Kind), Str(Str.str()) {}
 
   SourceLocation Loc;
   std::string Namespace;
@@ -128,27 +172,31 @@ struct PPPragmaMessage : PPDirective {
   std::string Str;
 };
 
-struct PPMacroDefined : PPDirective {
-  PPMacroDefined(const Token &MacroNameTok, const MacroDirective *MD) : Name(MacroNameTok), MD(MD) {}
+class PPMacroDefined : public PPDirective {
+public:
+  PPMacroDefined(const Token &MacroNameTok, const MacroDirective *MD)
+      : PPDirective(DK_MacroDefined), Name(MacroNameTok), MD(MD) {}
 
   Token Name;
   const MacroDirective *MD;
 };
 
-struct PPMacroUndefined : PPDirective {
+class PPMacroUndefined : public PPDirective {
+public:
   PPMacroUndefined(Token Name, const MacroDefinition *MD,
                    const MacroDirective *Undef)
-      : Name(Name), MD(MD), Undef(Undef) {}
+      : PPDirective(DK_MacroUndefined), Name(Name), MD(MD), Undef(Undef) {}
 
   Token Name;
   const MacroDefinition *MD;
   const MacroDirective *Undef;
 };
 
-struct PPIf : PPDirective {
+class PPIf : public PPDirective {
+public:
   PPIf(SourceLocation Loc, SourceRange ConditionRange,
        PPCallbacks::ConditionValueKind ConditionValue)
-      : Loc(Loc), ConditionRange(ConditionRange),
+      : PPDirective(DK_If), Loc(Loc), ConditionRange(ConditionRange),
         ConditionValue(ConditionValue) {}
 
   SourceLocation Loc;
@@ -157,10 +205,21 @@ struct PPIf : PPDirective {
   PPDirectiveList Directives;
 };
 
-struct PPElseIf : PPDirective {
+class PPElse : public PPDirective {
+public:
+  PPElse(SourceLocation Loc, SourceLocation IfLoc)
+      : PPDirective(DK_Else), Loc(Loc), IfLoc(IfLoc) {}
+
+  SourceLocation Loc;
+  SourceLocation IfLoc;
+  PPDirectiveList Directives;
+};
+
+class PPElseIf : public PPDirective {
+public:
   PPElseIf(SourceLocation Loc, SourceRange ConditionRange,
-         PPCallbacks::ConditionValueKind ConditionValue, SourceLocation IfLoc)
-      : Loc(Loc), ConditionRange(ConditionRange),
+           PPCallbacks::ConditionValueKind ConditionValue, SourceLocation IfLoc)
+      : PPDirective(DK_ElseIf), Loc(Loc), ConditionRange(ConditionRange),
         ConditionValue(ConditionValue), IfLoc(IfLoc) {}
 
   SourceLocation Loc;
@@ -170,10 +229,11 @@ struct PPElseIf : PPDirective {
   PPDirectiveList Directives;
 };
 
-struct PPIfDef : PPDirective {
+class PPIfDef : public PPDirective {
+public:
   PPIfDef(SourceLocation Loc, const Token &MacroNameTok,
           const MacroDefinition &MD)
-      : Loc(Loc), Name(MacroNameTok), MD(&MD) {}
+      : PPDirective(DK_IfDef), Loc(Loc), Name(MacroNameTok), MD(&MD) {}
 
   SourceLocation Loc;
   Token Name;
@@ -181,10 +241,11 @@ struct PPIfDef : PPDirective {
   PPDirectiveList Directives;
 };
 
-struct PPIfNotDef : PPDirective {
+class PPIfNotDef : public PPDirective {
+public:
   PPIfNotDef(SourceLocation Loc, const Token &MacroNameTok,
              const MacroDefinition &MD)
-      : Loc(Loc), Name(MacroNameTok), MD(&MD) {}
+      : PPDirective(DK_IfNotDef), Loc(Loc), Name(MacroNameTok), MD(&MD) {}
 
   SourceLocation Loc;
   Token Name;
@@ -192,10 +253,11 @@ struct PPIfNotDef : PPDirective {
   PPDirectiveList Directives;
 };
 
-struct PPElseIfDef : PPDirective {
+class PPElseIfDef : public PPDirective {
+public:
   PPElseIfDef(SourceLocation Loc, const Token &MacroNameTok,
-          const MacroDefinition &MD)
-      : Loc(Loc), Name(MacroNameTok), MD(&MD) {}
+              const MacroDefinition &MD)
+      : PPDirective(DK_ElseIfDef), Loc(Loc), Name(MacroNameTok), MD(&MD) {}
 
   SourceLocation Loc;
   Token Name;
@@ -203,10 +265,11 @@ struct PPElseIfDef : PPDirective {
   PPDirectiveList Directives;
 };
 
-struct PPElseIfNotDef : PPDirective {
+class PPElseIfNotDef : public PPDirective {
+public:
   PPElseIfNotDef(SourceLocation Loc, const Token &MacroNameTok,
                  const MacroDefinition &MD)
-      : Loc(Loc), Name(MacroNameTok), MD(&MD) {}
+      : PPDirective(DK_ElseIfNotDef), Loc(Loc), Name(MacroNameTok), MD(&MD) {}
 
   SourceLocation Loc;
   Token Name;
@@ -214,19 +277,13 @@ struct PPElseIfNotDef : PPDirective {
   PPDirectiveList Directives;
 };
 
-struct PPEndIf : PPDirective {
-  PPEndIf(SourceLocation Loc, SourceLocation IfLoc) : Loc(Loc), IfLoc(IfLoc) {}
+class PPEndIf : public PPDirective {
+public:
+  PPEndIf(SourceLocation Loc, SourceLocation IfLoc)
+      : PPDirective(DK_EndIf), Loc(Loc), IfLoc(IfLoc) {}
 
   SourceLocation Loc;
   SourceLocation IfLoc;
-};
-
-struct PPElse : PPDirective {
-  PPElse(SourceLocation Loc, SourceLocation IfLoc) : Loc(Loc), IfLoc(IfLoc) {}
-
-  SourceLocation Loc;
-  SourceLocation IfLoc;
-  PPDirectiveList Directives;
 };
 
 struct PPTree {
@@ -242,7 +299,8 @@ public:
 
 class PPTreeBuilder {
 public:
-  PPTreeBuilder(PPTreeConsumer *Callback, Preprocessor *PP, const SourceManager &SM, const LangOptions &LangOpts);
+  PPTreeBuilder(PPTreeConsumer *Callback, Preprocessor *PP,
+                const SourceManager &SM, const LangOptions &LangOpts);
 
 private:
   Preprocessor *PP;
