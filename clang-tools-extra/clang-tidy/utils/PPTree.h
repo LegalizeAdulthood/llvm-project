@@ -90,6 +90,8 @@ public:
         RelativePath(RelativePath.str()), Imported(Imported),
         FileType(FileType) {}
 
+  static bool classof(const PPDirective *D) { return D->getKind() == DK_Inclusion; }
+
   SourceLocation HashLoc;
   Token IncludeTok;
   std::string FileName;
@@ -107,6 +109,8 @@ public:
   PPIdent(SourceLocation Loc, StringRef Str)
       : PPDirective(DK_Ident), Loc(Loc), Str(Str.str()) {}
 
+  static bool classof(const PPDirective *D) { return D->getKind() == DK_Ident; }
+
   SourceLocation Loc;
   std::string Str;
 };
@@ -116,6 +120,10 @@ public:
   PPPragma(SourceLocation Loc, PragmaIntroducerKind Introducer)
       : PPDirective(DK_Pragma), Loc(Loc), Introducer(Introducer) {}
 
+  static bool classof(const PPDirective *D) {
+    return D->getKind() == DK_Pragma;
+  }
+
   SourceLocation Loc;
   PragmaIntroducerKind Introducer;
 };
@@ -124,6 +132,10 @@ class PPPragmaComment : public PPDirective {
 public:
   PPPragmaComment(SourceLocation Loc, const IdentifierInfo *Kind, StringRef Str)
       : PPDirective(DK_PragmaComment), Loc(Loc), Kind(Kind), Str(Str.str()) {}
+
+  static bool classof(const PPDirective *D) {
+    return D->getKind() == DK_PragmaComment;
+  }
 
   SourceLocation Loc;
   const IdentifierInfo *Kind;
@@ -135,6 +147,10 @@ public:
   PPPragmaMark(SourceLocation Loc, StringRef Trivia)
       : PPDirective(DK_PragmaMark), Loc(Loc), Trivia(Trivia.str()) {}
 
+  static bool classof(const PPDirective *D) {
+    return D->getKind() == DK_PragmaMark;
+  }
+
   SourceLocation Loc;
   std::string Trivia;
 };
@@ -145,6 +161,10 @@ public:
       : PPDirective(DK_PragmaDetectMismatch), Loc(Loc), Name(Name.str()),
         Value(Value.str()) {}
 
+  static bool classof(const PPDirective *D) {
+    return D->getKind() == DK_PragmaDetectMismatch;
+  }
+
   SourceLocation Loc;
   std::string Name;
   std::string Value;
@@ -154,6 +174,10 @@ class PPPragmaDebug : public PPDirective {
 public:
   PPPragmaDebug(SourceLocation Loc, StringRef DebugType)
       : PPDirective(DK_PragmaDebug), Loc(Loc), DebugType(DebugType.str()) {}
+
+  static bool classof(const PPDirective *D) {
+    return D->getKind() == DK_PragmaDebug;
+  }
 
   SourceLocation Loc;
   std::string DebugType;
@@ -166,6 +190,10 @@ public:
       : PPDirective(DK_PragmaMessage), Loc(Loc), Namespace(Namespace.str()),
         Kind(Kind), Str(Str.str()) {}
 
+  static bool classof(const PPDirective *D) {
+    return D->getKind() == DK_PragmaMessage;
+  }
+
   SourceLocation Loc;
   std::string Namespace;
   PPCallbacks::PragmaMessageKind Kind;
@@ -177,6 +205,10 @@ public:
   PPMacroDefined(const Token &MacroNameTok, const MacroDirective *MD)
       : PPDirective(DK_MacroDefined), Name(MacroNameTok), MD(MD) {}
 
+  static bool classof(const PPDirective *D) {
+    return D->getKind() == DK_MacroDefined;
+  }
+
   Token Name;
   const MacroDirective *MD;
 };
@@ -186,6 +218,10 @@ public:
   PPMacroUndefined(Token Name, const MacroDefinition *MD,
                    const MacroDirective *Undef)
       : PPDirective(DK_MacroUndefined), Name(Name), MD(MD), Undef(Undef) {}
+
+  static bool classof(const PPDirective *D) {
+    return D->getKind() == DK_MacroUndefined;
+  }
 
   Token Name;
   const MacroDefinition *MD;
@@ -199,6 +235,8 @@ public:
       : PPDirective(DK_If), Loc(Loc), ConditionRange(ConditionRange),
         ConditionValue(ConditionValue) {}
 
+  static bool classof(const PPDirective *D) { return D->getKind() == DK_If; }
+
   SourceLocation Loc;
   SourceRange ConditionRange;
   PPCallbacks::ConditionValueKind ConditionValue;
@@ -209,6 +247,8 @@ class PPElse : public PPDirective {
 public:
   PPElse(SourceLocation Loc, SourceLocation IfLoc)
       : PPDirective(DK_Else), Loc(Loc), IfLoc(IfLoc) {}
+
+  static bool classof(const PPDirective *D) { return D->getKind() == DK_Else; }
 
   SourceLocation Loc;
   SourceLocation IfLoc;
@@ -221,6 +261,10 @@ public:
            PPCallbacks::ConditionValueKind ConditionValue, SourceLocation IfLoc)
       : PPDirective(DK_ElseIf), Loc(Loc), ConditionRange(ConditionRange),
         ConditionValue(ConditionValue), IfLoc(IfLoc) {}
+
+  static bool classof(const PPDirective *D) {
+    return D->getKind() == DK_ElseIf;
+  }
 
   SourceLocation Loc;
   SourceRange ConditionRange;
@@ -235,6 +279,8 @@ public:
           const MacroDefinition &MD)
       : PPDirective(DK_IfDef), Loc(Loc), Name(MacroNameTok), MD(&MD) {}
 
+  static bool classof(const PPDirective *D) { return D->getKind() == DK_IfDef; }
+
   SourceLocation Loc;
   Token Name;
   const MacroDefinition *MD;
@@ -246,6 +292,10 @@ public:
   PPIfNotDef(SourceLocation Loc, const Token &MacroNameTok,
              const MacroDefinition &MD)
       : PPDirective(DK_IfNotDef), Loc(Loc), Name(MacroNameTok), MD(&MD) {}
+
+  static bool classof(const PPDirective *D) {
+    return D->getKind() == DK_IfNotDef;
+  }
 
   SourceLocation Loc;
   Token Name;
@@ -259,6 +309,10 @@ public:
               const MacroDefinition &MD)
       : PPDirective(DK_ElseIfDef), Loc(Loc), Name(MacroNameTok), MD(&MD) {}
 
+  static bool classof(const PPDirective *D) {
+    return D->getKind() == DK_ElseIfDef;
+  }
+
   SourceLocation Loc;
   Token Name;
   const MacroDefinition *MD;
@@ -271,6 +325,10 @@ public:
                  const MacroDefinition &MD)
       : PPDirective(DK_ElseIfNotDef), Loc(Loc), Name(MacroNameTok), MD(&MD) {}
 
+  static bool classof(const PPDirective *D) {
+    return D->getKind() == DK_ElseIfNotDef;
+  }
+
   SourceLocation Loc;
   Token Name;
   const MacroDefinition *MD;
@@ -281,6 +339,8 @@ class PPEndIf : public PPDirective {
 public:
   PPEndIf(SourceLocation Loc, SourceLocation IfLoc)
       : PPDirective(DK_EndIf), Loc(Loc), IfLoc(IfLoc) {}
+
+  static bool classof(const PPDirective *D) { return D->getKind() == DK_EndIf; }
 
   SourceLocation Loc;
   SourceLocation IfLoc;
