@@ -89,9 +89,7 @@ void PPTreeBuilderCallbacks::InclusionDirective(
   Directives->add(Directive.release());
 }
 
-void PPTreeBuilderCallbacks::EndOfMainFile() {
-  Callback->endOfMainFile(&Tree);
-}
+void PPTreeBuilderCallbacks::EndOfMainFile() { Callback->endOfMainFile(&Tree); }
 
 void PPTreeBuilderCallbacks::Ident(SourceLocation Loc, StringRef Str) {
   auto Directive{std::make_unique<PPIdent>(Loc, Str)};
@@ -140,8 +138,7 @@ void PPTreeBuilderCallbacks::PragmaMessage(SourceLocation Loc,
 void PPTreeBuilderCallbacks::MacroExpands(const Token &MacroNameTok,
                                           const MacroDefinition &MD,
                                           SourceRange Range,
-                                          const MacroArgs *Args) {
-}
+                                          const MacroArgs *Args) {}
 
 void PPTreeBuilderCallbacks::MacroDefined(const Token &MacroNameTok,
                                           const MacroDirective *MD) {
@@ -158,8 +155,7 @@ void PPTreeBuilderCallbacks::MacroUndefined(const Token &MacroNameTok,
 
 void PPTreeBuilderCallbacks::Defined(const Token &MacroNameTok,
                                      const MacroDefinition &MD,
-                                     SourceRange Range) {
-}
+                                     SourceRange Range) {}
 
 void PPTreeBuilderCallbacks::If(SourceLocation Loc, SourceRange ConditionRange,
                                 ConditionValueKind ConditionValue) {
@@ -199,7 +195,8 @@ void PPTreeBuilderCallbacks::Elif(SourceLocation Loc,
                                   SourceRange ConditionRange,
                                   ConditionValueKind ConditionValue,
                                   SourceLocation IfLoc) {
-  auto Directive{std::make_unique<PPElseIf>(Loc, ConditionRange, ConditionValue, IfLoc)};
+  auto Directive{
+      std::make_unique<PPElseIf>(Loc, ConditionRange, ConditionValue, IfLoc)};
   PPDirectiveList *NewContext = &Directive->Directives;
   popDirectiveStack();
   Directives->add(Directive.release());
@@ -246,10 +243,38 @@ void PPTreeBuilderCallbacks::popDirectiveStack() {
 } // namespace
 
 PPTreeBuilder::PPTreeBuilder(PPTreeConsumer *Callback, Preprocessor *PP,
-                             const SourceManager &SM, const LangOptions &LangOpts)
+                             const SourceManager &SM,
+                             const LangOptions &LangOpts)
     : PP(PP), Callback(Callback), SM(SM), LangOpts(LangOpts) {
   PP->addPPCallbacks(
       std::make_unique<PPTreeBuilderCallbacks>(Callback, SM, LangOpts));
+}
+
+const PPMatcher<PPInclusion> ppInclusion;
+const PPMatcher<PPIdent> identDirective;
+const PPMatcher<PPPragma> pragmaDirective;
+const PPMatcher<PPPragmaComment> pragmaCommentDirective;
+const PPMatcher<PPPragmaMark> pragmaMarkDirective;
+const PPMatcher<PPPragmaDetectMismatch> pragmaDetectMismatchDirective;
+const PPMatcher<PPPragmaDebug> pragmaDebugDirective;
+const PPMatcher<PPPragmaMessage> pragmaMessage;
+const PPMatcher<PPMacroDefined> macroDefinedDirective;
+const PPMatcher<PPMacroUndefined> macroUndefinedDirective;
+const PPMatcher<PPIf> ifDirective;
+const PPMatcher<PPElse> elseDirective;
+const PPMatcher<PPElseIf> elseIfDirective;
+const PPMatcher<PPIfDef> ifDefDirective;
+const PPMatcher<PPIfNotDef> ifNotDefDirective;
+const PPMatcher<PPElseIfDef> elseIfDefDirective;
+const PPMatcher<PPElseIfNotDef> elseIfNotDefDirective;
+const PPMatcher<PPEndIf> endIfDirective;
+
+class MatchPPTreeVisitor : public PPTreeVisitor<MatchPPTreeVisitor> {
+};
+
+void DirectiveMatchFinder::match(const PPTree *Tree) {
+  MatchPPTreeVisitor Visitor;
+  Visitor.visit(Tree);
 }
 
 } // namespace utils
