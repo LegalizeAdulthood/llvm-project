@@ -213,10 +213,20 @@ static void dumpDirectives(const SourceManager &SM,
 
 namespace {
 
+class CheckPPTreeVisitor : public PPTreeVisitor<CheckPPTreeVisitor> {
+public:
+  bool visitIf(const PPIf *Directive) {
+    errs() << "If directive\n";
+    return true;
+  }
+};
+
 class CheckPPTreeConsumer : public PPTreeConsumer {
 public:
   CheckPPTreeConsumer(ClangTidyCheck *Check) : Check(Check) {}
   void endOfMainFile(const PPTree *Tree) override {
+    CheckPPTreeVisitor Visitor;
+    Visitor.visit(Tree);
     llvm::errs() << "End of main file: " << Tree->Directives.size()
                  << " directives.\n";
     dumpDirectives(*SM, Tree->Directives);

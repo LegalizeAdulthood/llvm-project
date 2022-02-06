@@ -9,6 +9,7 @@
 #ifndef LLVM_CLANG_TOOLS_EXTRA_CLANG_TIDY_PPTREE_H
 #define LLVM_CLANG_TOOLS_EXTRA_CLANG_TIDY_PPTREE_H
 
+#include "clang/ASTMatchers/ASTMatchers.h"
 #include "clang/Lex/PPCallbacks.h"
 #include "clang/Lex/Token.h"
 #include <string>
@@ -24,9 +25,9 @@ public:
     DK_Ident,
     DK_Pragma,
     DK_PragmaComment,
-    DK_PragmaMark,
-    DK_PragmaDetectMismatch,
     DK_PragmaDebug,
+    DK_PragmaDetectMismatch,
+    DK_PragmaMark,
     DK_PragmaMessage,
     DK_MacroDefined,
     DK_MacroUndefined,
@@ -90,7 +91,9 @@ public:
         RelativePath(RelativePath.str()), Imported(Imported),
         FileType(FileType) {}
 
-  static bool classof(const PPDirective *D) { return D->getKind() == DK_Inclusion; }
+  static bool classof(const PPDirective *D) {
+    return D->getKind() == DK_Inclusion;
+  }
 
   SourceLocation HashLoc;
   Token IncludeTok;
@@ -142,17 +145,17 @@ public:
   std::string Str;
 };
 
-class PPPragmaMark : public PPDirective {
+class PPPragmaDebug : public PPDirective {
 public:
-  PPPragmaMark(SourceLocation Loc, StringRef Trivia)
-      : PPDirective(DK_PragmaMark), Loc(Loc), Trivia(Trivia.str()) {}
+  PPPragmaDebug(SourceLocation Loc, StringRef DebugType)
+      : PPDirective(DK_PragmaDebug), Loc(Loc), DebugType(DebugType.str()) {}
 
   static bool classof(const PPDirective *D) {
-    return D->getKind() == DK_PragmaMark;
+    return D->getKind() == DK_PragmaDebug;
   }
 
   SourceLocation Loc;
-  std::string Trivia;
+  std::string DebugType;
 };
 
 class PPPragmaDetectMismatch : public PPDirective {
@@ -170,17 +173,17 @@ public:
   std::string Value;
 };
 
-class PPPragmaDebug : public PPDirective {
+class PPPragmaMark : public PPDirective {
 public:
-  PPPragmaDebug(SourceLocation Loc, StringRef DebugType)
-      : PPDirective(DK_PragmaDebug), Loc(Loc), DebugType(DebugType.str()) {}
+  PPPragmaMark(SourceLocation Loc, StringRef Trivia)
+      : PPDirective(DK_PragmaMark), Loc(Loc), Trivia(Trivia.str()) {}
 
   static bool classof(const PPDirective *D) {
-    return D->getKind() == DK_PragmaDebug;
+    return D->getKind() == DK_PragmaMark;
   }
 
   SourceLocation Loc;
-  std::string DebugType;
+  std::string Trivia;
 };
 
 class PPPragmaMessage : public PPDirective {
@@ -367,6 +370,163 @@ private:
   PPTreeConsumer *Callback;
   const SourceManager &SM;
   const LangOptions &LangOpts;
+};
+
+template <typename T>
+using PPMatcher =
+    ast_matchers::internal::VariadicDynCastAllOfMatcher<PPDirective, T>;
+
+extern const PPMatcher<PPInclusion> ppInclusion;
+extern const PPMatcher<PPIdent> identDirective;
+extern const PPMatcher<PPPragma> pragmaDirective;
+extern const PPMatcher<PPPragmaComment> pragmaCommentDirective;
+extern const PPMatcher<PPPragmaDebug> pragmaDebugDirective;
+extern const PPMatcher<PPPragmaDetectMismatch> pragmaDetectMismatchDirective;
+extern const PPMatcher<PPPragmaMark> pragmaMarkDirective;
+extern const PPMatcher<PPPragmaMessage> pragmaMessage;
+extern const PPMatcher<PPMacroDefined> macroDefinedDirective;
+extern const PPMatcher<PPMacroUndefined> macroUndefinedDirective;
+extern const PPMatcher<PPIf> ifDirective;
+extern const PPMatcher<PPElse> elseDirective;
+extern const PPMatcher<PPElseIf> elseIfDirective;
+extern const PPMatcher<PPIfDef> ifDefDirective;
+extern const PPMatcher<PPIfNotDef> ifNotDefDirective;
+extern const PPMatcher<PPElseIfDef> elseIfDefDirective;
+extern const PPMatcher<PPElseIfNotDef> elseIfNotDefDirective;
+extern const PPMatcher<PPEndIf> endIfDirective;
+
+template <class Derived> class PPTreeVisitor {
+public:
+  void visit(const PPTree *Tree) { visitDirectives(Tree->Directives); }
+
+  bool visitInclusion(const PPInclusion *Directive) { return true; }
+  bool visitIdent(const PPIdent *Directive) { return true; }
+  bool visitPragma(const PPPragma *Directive) { return true; }
+  bool visitPragmaComment(const PPPragmaComment *Directive) { return true; }
+  bool visitPragmaDebug(const PPPragmaDebug *Directive) { return true; }
+  bool visitPragmaDetectMismatch(const PPPragmaDetectMismatch *Directive) { return true; }
+  bool visitPragmaMark(const PPPragmaMark *Directive) { return true; }
+  bool visitPragmaMessage(const PPPragmaMessage *Directive) { return true; }
+  bool visitMacroDefined(const PPMacroDefined *Directive) { return true; }
+  bool visitMacroUndefined(const PPMacroUndefined *Directive) { return true; }
+  bool visitIf(const PPIf *Directive) { return true; }
+  bool visitElse(const PPElse *Directive) { return true; }
+  bool visitElseIf(const PPElseIf *Directive) { return true; }
+  bool visitIfDef(const PPIfDef *Directive) { return true; }
+  bool visitIfNotDef(const PPIfNotDef *Directive) { return true; }
+  bool visitElseIfDef(const PPElseIfDef *Directive) { return true; }
+  bool visitElseIfNotDef(const PPElseIfNotDef *Directive) { return true; }
+  bool visitEndIf(const PPEndIf *Directive) { return true; }
+
+private:
+  Derived &getDerived() { return *static_cast<Derived *>(this); }
+
+  void visitDirectives(const PPDirectiveList &List);
+};
+
+template <class Derived>
+void PPTreeVisitor<Derived>::visitDirectives(const PPDirectiveList &List) {
+  for (const PPDirective *Directive : List) {
+    switch (Directive->getKind()) {
+    case PPDirective::DK_Inclusion:
+      getDerived().visitInclusion(dyn_cast<PPInclusion>(Directive));
+      break;
+    case PPDirective::DK_Ident:
+      getDerived().visitIdent(dyn_cast<PPIdent>(Directive));
+      break;
+    case PPDirective::DK_Pragma:
+      getDerived().visitPragma(dyn_cast<PPPragma>(Directive));
+      break;
+    case PPDirective::DK_PragmaComment:
+      getDerived().visitPragmaComment(dyn_cast<PPPragmaComment>(Directive));
+      break;
+    case PPDirective::DK_PragmaDebug:
+      getDerived().visitPragmaDebug(dyn_cast<PPPragmaDebug>(Directive));
+      break;
+    case PPDirective::DK_PragmaDetectMismatch:
+      getDerived().visitPragmaDetectMismatch(dyn_cast<PPPragmaDetectMismatch>(Directive));
+      break;
+    case PPDirective::DK_PragmaMark:
+      getDerived().visitPragmaMark(dyn_cast<PPPragmaMark>(Directive));
+      break;
+    case PPDirective::DK_PragmaMessage:
+      getDerived().visitPragmaMessage(dyn_cast<PPPragmaMessage>(Directive));
+      break;
+    case PPDirective::DK_MacroDefined:
+      getDerived().visitMacroDefined(dyn_cast<PPMacroDefined>(Directive));
+      break;
+    case PPDirective::DK_MacroUndefined:
+      getDerived().visitMacroUndefined(dyn_cast<PPMacroUndefined>(Directive));
+      break;
+    case PPDirective::DK_If: {
+      const PPIf *If = dyn_cast<PPIf>(Directive);
+      getDerived().visitIf(If);
+      visitDirectives(If->Directives);
+      break;
+    }
+    case PPDirective::DK_Else: {
+      const PPElse *Else = dyn_cast<PPElse>(Directive);
+      getDerived().visitElse(Else);
+      visitDirectives(Else->Directives);
+      break;
+    }
+    case PPDirective::DK_ElseIf: {
+      const PPElseIf *ElseIf = dyn_cast<PPElseIf>(Directive);
+      getDerived().visitElseIf(ElseIf);
+      break;
+    }
+    case PPDirective::DK_IfDef: {
+      const PPIfDef *IfDef = dyn_cast<PPIfDef>(Directive);
+      getDerived().visitIfDef(IfDef);
+      visitDirectives(IfDef->Directives);
+      break;
+    }
+    case PPDirective::DK_IfNotDef: {
+      const PPIfNotDef *IfNotDef = dyn_cast<PPIfNotDef>(Directive);
+      getDerived().visitIfNotDef(IfNotDef);
+      visitDirectives(IfNotDef->Directives);
+      break;
+    }
+    case PPDirective::DK_ElseIfDef: {
+      const PPElseIfDef *ElseIfDef = dyn_cast<PPElseIfDef>(Directive);
+      getDerived().visitElseIfDef(ElseIfDef);
+      visitDirectives(ElseIfDef->Directives);
+      break;
+    }
+    case PPDirective::DK_ElseIfNotDef: {
+      const PPElseIfNotDef *ElseIfNotDef = dyn_cast<PPElseIfNotDef>(Directive);
+      getDerived().visitElseIfNotDef(ElseIfNotDef);
+      visitDirectives(ElseIfNotDef->Directives);
+      break;
+    }
+    case PPDirective::DK_EndIf:
+      getDerived().visitEndIf(dyn_cast<PPEndIf>(Directive));
+      break;
+    }
+  }
+}
+
+using PPDirectiveMatcher = ast_matchers::internal::Matcher<PPDirective>;
+
+class DirectiveMatchFinder {
+public:
+  struct MatchResult {
+    MatchResult(const ast_matchers::BoundNodes &Nodes,
+                SourceManager &SourceManager)
+        : Nodes(Nodes), SourceManager(SourceManager) {}
+
+    const ast_matchers::BoundNodes Nodes;
+    SourceManager &SourceManager;
+  };
+
+  void addMatcher(const PPDirectiveMatcher &NodeMatch) {
+    Matchers.emplace_back(&NodeMatch);
+  }
+
+  void match(const PPTree *Tree);
+
+private:
+  std::vector<const PPDirectiveMatcher *> Matchers;
 };
 
 } // namespace utils
