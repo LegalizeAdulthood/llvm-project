@@ -681,7 +681,7 @@ private:
   }
 
   PPDynTypedMatcher Implementation;
-}; // class Matcher
+}; // class PPMatcherT
 
 template <typename T>
 using PPMatcher =
