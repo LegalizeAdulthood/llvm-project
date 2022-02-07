@@ -373,7 +373,59 @@ private:
 };
 
 class PPMatchFinder;
-class PPBoundNodesTreeBuilder;
+using PPBoundNodes = ast_matchers::BoundNodes;
+using PPBoundNodesMap = ast_matchers::internal::BoundNodesMap;
+
+class PPBoundNodesTreeBuilder {
+public:
+  /// A visitor interface to visit all BoundNodes results for a
+  /// BoundNodesTree.
+  class Visitor {
+  public:
+    virtual ~Visitor() = default;
+
+    /// Called multiple times during a single call to VisitMatches(...).
+    ///
+    /// 'BoundNodesView' contains the bound nodes for a single match.
+    virtual void visitMatch(const PPBoundNodes &BoundNodesView) = 0;
+  };
+
+  /// Add a binding from an id to a node.
+  void setBinding(StringRef Id, const DynTypedNode &DynNode) {
+    if (Bindings.empty())
+      Bindings.emplace_back();
+    for (PPBoundNodesMap &Binding : Bindings)
+      Binding.addNode(Id, DynNode);
+  }
+
+  /// Adds a branch in the tree.
+  void addMatch(const PPBoundNodesTreeBuilder &Bindings);
+
+  /// Visits all matches that this BoundNodesTree represents.
+  ///
+  /// The ownership of 'ResultVisitor' remains at the caller.
+  void visitMatches(Visitor *ResultVisitor);
+
+  template <typename ExcludePredicate>
+  bool removeBindings(const ExcludePredicate &Predicate) {
+    llvm::erase_if(Bindings, Predicate);
+    return !Bindings.empty();
+  }
+
+  /// Imposes an order on BoundNodesTreeBuilders.
+  bool operator<(const PPBoundNodesTreeBuilder &Other) const {
+    return Bindings < Other.Bindings;
+  }
+
+  /// Returns \c true if this \c BoundNodesTreeBuilder can be compared,
+  /// i.e. all stored node maps have memoization data.
+  bool isComparable() const {
+    return llvm::all_of(Bindings, std::mem_fn(&PPBoundNodesMap::isComparable));
+  }
+
+private:
+  SmallVector<PPBoundNodesMap, 1> Bindings;
+};
 
 class PPDynMatcherInterface
     : public llvm::ThreadSafeRefCountedBase<PPDynMatcherInterface> {
