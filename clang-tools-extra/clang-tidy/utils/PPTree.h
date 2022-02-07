@@ -372,6 +372,265 @@ private:
   const LangOptions &LangOpts;
 };
 
+class PPMatchFinder;
+class PPBoundNodesTreeBuilder;
+
+class PPDynMatcherInterface
+    : public llvm::ThreadSafeRefCountedBase<PPDynMatcherInterface> {
+public:
+  virtual ~PPDynMatcherInterface() = default;
+
+  /// Returns true if \p DynNode can be matched.
+  ///
+  /// May bind \p DynNode to an ID via \p Builder, or recurse into
+  /// the AST via \p Finder.
+  virtual bool dynMatches(const DynTypedNode &DynNode, PPMatchFinder *Finder,
+                          PPBoundNodesTreeBuilder *Builder) const = 0;
+
+  virtual llvm::Optional<clang::TraversalKind> traversalKind() const {
+    return llvm::None;
+  }
+};
+
+template <typename T> class PPMatcherInterface : public PPDynMatcherInterface {
+public:
+  /// Returns true if 'Node' can be matched.
+  ///
+  /// May bind 'Node' to an ID via 'Builder', or recurse into
+  /// the AST via 'Finder'.
+  virtual bool matches(const T &Node, PPMatchFinder *Finder,
+                       PPBoundNodesTreeBuilder *Builder) const = 0;
+
+  bool dynMatches(const DynTypedNode &DynNode, PPMatchFinder *Finder,
+                  PPBoundNodesTreeBuilder *Builder) const override {
+    return matches(DynNode.getUnchecked<T>(), Finder, Builder);
+  }
+};
+
+template <typename> class PPMatcherT;
+
+class PPDynTypedMatcher {
+public:
+  /// Takes ownership of the provided implementation pointer.
+  template <typename T>
+  PPDynTypedMatcher(PPMatcherInterface<T> *Implementation)
+      : SupportedKind(ASTNodeKind::getFromNodeKind<T>()),
+        RestrictKind(SupportedKind), Implementation(Implementation) {}
+
+  /// Construct from a variadic function.
+  enum VariadicOperator {
+    /// Matches nodes for which all provided matchers match.
+    VO_AllOf,
+
+    /// Matches nodes for which at least one of the provided matchers
+    /// matches.
+    VO_AnyOf,
+
+    /// Matches nodes for which at least one of the provided matchers
+    /// matches, but doesn't stop at the first match.
+    VO_EachOf,
+
+    /// Matches any node but executes all inner matchers to find result
+    /// bindings.
+    VO_Optionally,
+
+    /// Matches nodes that do not match the provided matcher.
+    ///
+    /// Uses the variadic matcher interface, but fails if
+    /// InnerMatchers.size() != 1.
+    VO_UnaryNot
+  };
+
+  static PPDynTypedMatcher
+  constructVariadic(VariadicOperator Op, ASTNodeKind SupportedKind,
+                    std::vector<PPDynTypedMatcher> InnerMatchers);
+
+  static PPDynTypedMatcher
+  constructRestrictedWrapper(const PPDynTypedMatcher &InnerMatcher,
+                             ASTNodeKind RestrictKind);
+
+  /// Get a "true" matcher for \p NodeKind.
+  ///
+  /// It only checks that the node is of the right kind.
+  static PPDynTypedMatcher trueMatcher(ASTNodeKind NodeKind);
+
+  void setAllowBind(bool AB) { AllowBind = AB; }
+
+  /// Check whether this matcher could ever match a node of kind \p Kind.
+  /// \return \c false if this matcher will never match such a node. Otherwise,
+  /// return \c true.
+  bool canMatchNodesOfKind(ASTNodeKind Kind) const;
+
+  /// Return a matcher that points to the same implementation, but
+  ///   restricts the node types for \p Kind.
+  PPDynTypedMatcher dynCastTo(const ASTNodeKind Kind) const;
+
+  /// Return a matcher that that points to the same implementation, but sets the
+  ///   traversal kind.
+  ///
+  /// If the traversal kind is already set, then \c TK overrides it.
+  PPDynTypedMatcher withTraversalKind(TraversalKind TK);
+
+  /// Returns true if the matcher matches the given \c DynNode.
+  bool matches(const DynTypedNode &DynNode, PPMatchFinder *Finder,
+               PPBoundNodesTreeBuilder *Builder) const;
+
+  /// Same as matches(), but skips the kind check.
+  ///
+  /// It is faster, but the caller must ensure the node is valid for the
+  /// kind of this matcher.
+  bool matchesNoKindCheck(const DynTypedNode &DynNode, PPMatchFinder *Finder,
+                          PPBoundNodesTreeBuilder *Builder) const;
+
+  /// Bind the specified \p ID to the matcher.
+  /// \return A new matcher with the \p ID bound to it if this matcher supports
+  ///   binding. Otherwise, returns an empty \c Optional<>.
+  llvm::Optional<PPDynTypedMatcher> tryBind(StringRef ID) const;
+
+  /// Returns a unique \p ID for the matcher.
+  ///
+  /// Casting a Matcher<T> to Matcher<U> creates a matcher that has the
+  /// same \c Implementation pointer, but different \c RestrictKind. We need to
+  /// include both in the ID to make it unique.
+  ///
+  /// \c MatcherIDType supports operator< and provides strict weak ordering.
+  using MatcherIDType = std::pair<ASTNodeKind, uint64_t>;
+  MatcherIDType getID() const {
+    /// FIXME: Document the requirements this imposes on matcher
+    /// implementations (no new() implementation_ during a Matches()).
+    return std::make_pair(RestrictKind,
+                          reinterpret_cast<uint64_t>(Implementation.get()));
+  }
+
+  /// Returns the type this matcher works on.
+  ///
+  /// \c matches() will always return false unless the node passed is of this
+  /// or a derived type.
+  ASTNodeKind getSupportedKind() const { return SupportedKind; }
+
+  /// Returns \c true if the passed \c DynTypedMatcher can be converted
+  ///   to a \c Matcher<T>.
+  ///
+  /// This method verifies that the underlying matcher in \c Other can process
+  /// nodes of types T.
+  template <typename T> bool canConvertTo() const {
+    return canConvertTo(ASTNodeKind::getFromNodeKind<T>());
+  }
+  bool canConvertTo(ASTNodeKind To) const;
+
+  /// Construct a \c Matcher<T> interface around the dynamic matcher.
+  ///
+  /// This method asserts that \c canConvertTo() is \c true. Callers
+  /// should call \c canConvertTo() first to make sure that \c this is
+  /// compatible with T.
+  template <typename T> PPMatcherT<T> convertTo() const {
+    assert(canConvertTo<T>());
+    return unconditionalConvertTo<T>();
+  }
+
+  /// Same as \c convertTo(), but does not check that the underlying
+  ///   matcher can handle a value of T.
+  ///
+  /// If it is not compatible, then this matcher will never match anything.
+  template <typename T> PPMatcherT<T> unconditionalConvertTo() const;
+
+  /// Returns the \c TraversalKind respected by calls to `match()`, if any.
+  ///
+  /// Most matchers will not have a traversal kind set, instead relying on the
+  /// surrounding context. For those, \c llvm::None is returned.
+  llvm::Optional<clang::TraversalKind> getTraversalKind() const {
+    return Implementation->traversalKind();
+  }
+
+private:
+  PPDynTypedMatcher(ASTNodeKind SupportedKind, ASTNodeKind RestrictKind,
+                    IntrusiveRefCntPtr<PPDynMatcherInterface> Implementation)
+      : SupportedKind(SupportedKind), RestrictKind(RestrictKind),
+        Implementation(std::move(Implementation)) {}
+
+  bool AllowBind = false;
+  ASTNodeKind SupportedKind;
+
+  /// A potentially stricter node kind.
+  ///
+  /// It allows to perform implicit and dynamic cast of matchers without
+  /// needing to change \c Implementation.
+  ASTNodeKind RestrictKind;
+  IntrusiveRefCntPtr<PPDynMatcherInterface> Implementation;
+};
+
+template <typename T> class PPMatcherT {
+public:
+  /// Takes ownership of the provided implementation pointer.
+  explicit PPMatcherT(PPMatcherInterface<T> *Implementation)
+      : Implementation(Implementation) {}
+
+  /// Implicitly converts \c Other to a PPMatcherT<T>.
+  ///
+  /// Requires \c T to be derived from \c From.
+  template <typename From>
+  PPMatcherT(const PPMatcherT<From> &Other,
+             std::enable_if_t<std::is_base_of<From, T>::value &&
+                              !std::is_same<From, T>::value> * = nullptr)
+      : Implementation(restrictMatcher(Other.Implementation)) {
+#if 0
+    assert(Implementation.getSupportedKind().isSame(
+        PPNodeKind::getFromNodeKind<T>()));
+#endif
+  }
+
+  /// Convert \c this into a \c PPMatcherT<T> by applying dyn_cast<> to the
+  /// argument.
+  /// \c To must be a base class of \c T.
+  template <typename To> PPMatcherT<To> dynCastTo() const & {
+    static_assert(std::is_base_of<To, T>::value, "Invalid dynCast call.");
+    return PPMatcherT<To>(Implementation);
+  }
+
+  template <typename To> PPMatcherT<To> dynCastTo() && {
+    static_assert(std::is_base_of<To, T>::value, "Invalid dynCast call.");
+    return PPMatcherT<To>(std::move(Implementation));
+  }
+
+  /// Forwards the call to the underlying MatcherInterface<T> pointer.
+  bool matches(const T &Node, PPMatchFinder *Finder,
+               PPBoundNodesTreeBuilder *Builder) const {
+    return Implementation.matches(DynTypedNode::create(Node), Finder, Builder);
+  }
+
+  /// Returns an ID that uniquely identifies the matcher.
+  PPDynTypedMatcher::MatcherIDType getID() const {
+    return Implementation.getID();
+  }
+
+  /// Extract the dynamic matcher.
+  ///
+  /// The returned matcher keeps the same restrictions as \c this and remembers
+  /// that it is meant to support nodes of type \c T.
+  operator PPDynTypedMatcher() const & { return Implementation; }
+
+  operator PPDynTypedMatcher() && { return std::move(Implementation); }
+
+private:
+  // For Matcher<T> <=> Matcher<U> conversions.
+  template <typename U> friend class PPMatcherT;
+
+  // For DynTypedMatcher::unconditionalConvertTo<T>.
+  friend class PPDynTypedMatcher;
+
+  static PPDynTypedMatcher restrictMatcher(const PPDynTypedMatcher &Other) {
+    return Other.dynCastTo(ASTNodeKind::getFromNodeKind<T>());
+  }
+
+  explicit PPMatcherT(const PPDynTypedMatcher &Implementation)
+      : Implementation(restrictMatcher(Implementation)) {
+    assert(this->Implementation.getSupportedKind().isSame(
+        ASTNodeKind::getFromNodeKind<T>()));
+  }
+
+  PPDynTypedMatcher Implementation;
+}; // class Matcher
+
 template <typename T>
 using PPMatcher =
     ast_matchers::internal::VariadicDynCastAllOfMatcher<PPDirective, T>;
@@ -404,7 +663,9 @@ public:
   bool visitPragma(const PPPragma *Directive) { return true; }
   bool visitPragmaComment(const PPPragmaComment *Directive) { return true; }
   bool visitPragmaDebug(const PPPragmaDebug *Directive) { return true; }
-  bool visitPragmaDetectMismatch(const PPPragmaDetectMismatch *Directive) { return true; }
+  bool visitPragmaDetectMismatch(const PPPragmaDetectMismatch *Directive) {
+    return true;
+  }
   bool visitPragmaMark(const PPPragmaMark *Directive) { return true; }
   bool visitPragmaMessage(const PPPragmaMessage *Directive) { return true; }
   bool visitMacroDefined(const PPMacroDefined *Directive) { return true; }
@@ -444,7 +705,8 @@ void PPTreeVisitor<Derived>::visitDirectives(const PPDirectiveList &List) {
       getDerived().visitPragmaDebug(dyn_cast<PPPragmaDebug>(Directive));
       break;
     case PPDirective::DK_PragmaDetectMismatch:
-      getDerived().visitPragmaDetectMismatch(dyn_cast<PPPragmaDetectMismatch>(Directive));
+      getDerived().visitPragmaDetectMismatch(
+          dyn_cast<PPPragmaDetectMismatch>(Directive));
       break;
     case PPDirective::DK_PragmaMark:
       getDerived().visitPragmaMark(dyn_cast<PPPragmaMark>(Directive));
