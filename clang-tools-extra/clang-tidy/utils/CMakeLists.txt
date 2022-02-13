@@ -24,6 +24,7 @@ add_clang_library(clangTidyUtils
   OptionsUtils.cpp
   PPTree.cpp
   PPTreeMatchers.cpp
+  PPTreeVisitor.cpp
   RenamerClangTidyCheck.cpp
   TransformerClangTidyCheck.cpp
   TypeTraits.cpp

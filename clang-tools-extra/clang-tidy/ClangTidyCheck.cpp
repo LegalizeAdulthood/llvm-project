@@ -23,219 +23,21 @@ namespace clang::tidy {
 
 using namespace utils;
 
-static size_t IndentLevel = 0;
-
-static std::string printToString(const SourceManager &SM, CharSourceRange R) {
-  return R.getBegin().printToString(SM) + ", " + R.getEnd().printToString(SM);
-}
-
-static std::string indent() { return std::string(IndentLevel * 2, '.'); }
-
-static auto &errs() { return llvm::errs() << indent(); }
-
-static void dumpDirectives(const SourceManager &SM,
-                           const PPDirectiveList &Directives);
-
-static void dumpInclusion(const SourceManager &SM, const PPInclusion *D) {
-  errs() << "Inclusion\n"
-         << indent() << D->HashLoc.printToString(SM) << '\n'
-         << indent() << D->IncludeTok.getIdentifierInfo()->getName().str()
-         << '\n'
-         << indent() << D->FileName << '\n'
-         << indent() << (D->IsAngled ? "Angled\n" : "") << indent()
-         << printToString(SM, D->FilenameRange) << '\n'
-         << indent() << D->File->getDir()->getName().str() << '\n'
-         << indent() << D->SearchPath << '\n'
-         << indent() << D->RelativePath << '\n'
-         << indent() << (D->Imported != nullptr ? "<Imported>\n" : "")
-         << indent() << "FileType " << indent() << D->FileType << '\n';
-}
-static void dumpIdent(const SourceManager &SM, const PPIdent *D) {
-  errs() << "Ident\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Str << '\n';
-}
-static void dumpPragma(const SourceManager &SM, const PPPragma *D) {
-  errs() << "Pragma\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << "Introducer " << D->Introducer << '\n';
-}
-static void dumpPragmaComment(const SourceManager &SM,
-                              const PPPragmaComment *D) {
-  errs() << "Comment\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Kind->getName().str() << '\n'
-         << indent() << D->Str << '\n';
-}
-static void dumpPragmaMark(const SourceManager &SM, const PPPragmaMark *D) {
-  errs() << "Mark\n"
-         << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Trivia << '\n';
-}
-static void dumpPragmaDetectMismatch(const SourceManager &SM,
-                                     const PPPragmaDetectMismatch *D) {
-  errs() << "Detect Mismatch\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Name << '\n'
-         << indent() << D->Value << '\n';
-}
-static void dumpPragmaDebug(const SourceManager &SM, const PPPragmaDebug *D) {
-  errs() << "Debug\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->DebugType << '\n';
-}
-static void dumpPragmaMessage(const SourceManager &SM,
-                              const PPPragmaMessage *D) {
-  errs() << "Message\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Namespace << '\n'
-         << indent() << D->Kind << '\n'
-         << indent() << D->Str << '\n';
-}
-static void dumpMacroDefined(const SourceManager &SM, const PPMacroDefined *D) {
-  errs() << "Macro Defined\n"
-         << indent() << D->Name.getIdentifierInfo()->getName().str() << '\n';
-}
-static void dumpMacroUndefined(const SourceManager &SM,
-                               const PPMacroUndefined *D) {
-  errs() << "Macro Undefined\n"
-         << indent() << D->Name.getIdentifierInfo()->getName().str() << '\n';
-}
-static void dumpIf(const SourceManager &SM, const PPIf *D) {
-  errs() << "If\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->ConditionRange.getBegin().printToString(SM) << ", "
-         << D->ConditionRange.getEnd().printToString(SM) << '\n'
-         << indent() << D->ConditionValue << '\n';
-  ++IndentLevel;
-  dumpDirectives(SM, D->Directives);
-  --IndentLevel;
-}
-static void dumpElse(const SourceManager &SM, const PPElse *D) {
-  errs() << "Else\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->IfLoc.printToString(SM) << '\n';
-  ++IndentLevel;
-  dumpDirectives(SM, D->Directives);
-  --IndentLevel;
-}
-static void dumpElseIf(const SourceManager &SM, const PPElseIf *D) {
-  errs() << "ElseIf\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->ConditionRange.getBegin().printToString(SM) << ", "
-         << D->ConditionRange.getEnd().printToString(SM) << '\n'
-         << indent() << D->ConditionValue << '\n'
-         << indent() << D->IfLoc.printToString(SM) << '\n';
-  ++IndentLevel;
-  dumpDirectives(SM, D->Directives);
-  --IndentLevel;
-}
-static void dumpIfDef(const SourceManager &SM, const PPIfDef *D) {
-  errs() << "IfDef\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Name.getIdentifierInfo()->getName().str() << '\n';
-  ++IndentLevel;
-  dumpDirectives(SM, D->Directives);
-  --IndentLevel;
-}
-static void dumpIfNotDef(const SourceManager &SM, const PPIfNotDef *D) {
-  errs() << "IfNotDef\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Name.getIdentifierInfo()->getName().str() << '\n';
-  ++IndentLevel;
-  dumpDirectives(SM, D->Directives);
-  --IndentLevel;
-}
-static void dumpElseIfDef(const SourceManager &SM, const PPElseIfDef *D) {
-  errs() << "ElseIfDef\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Name.getIdentifierInfo()->getName().str() << '\n';
-  ++IndentLevel;
-  dumpDirectives(SM, D->Directives);
-  --IndentLevel;
-}
-static void dumpElseIfNotDef(const SourceManager &SM, const PPElseIfNotDef *D) {
-  errs() << "ElseIfNotDef\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Name.getIdentifierInfo()->getName().str() << '\n';
-  ++IndentLevel;
-  dumpDirectives(SM, D->Directives);
-  --IndentLevel;
-}
-static void dumpEndIf(const SourceManager &SM, const PPEndIf *D) {
-  errs() << "EndIf\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->IfLoc.printToString(SM) << '\n';
-}
-
-static void dumpDirectives(const SourceManager &SM,
-                           const PPDirectiveList &Directives) {
-  for (const PPDirective *Directive : Directives) {
-    if (const PPMacroDefined *Def = dyn_cast<PPMacroDefined>(Directive))
-      dumpMacroDefined(SM, Def);
-    else if (const PPInclusion *I = dyn_cast<PPInclusion>(Directive))
-      dumpInclusion(SM, I);
-    else if (const PPIdent *ID = dyn_cast<PPIdent>(Directive))
-      dumpIdent(SM, ID);
-    else if (const PPPragma *P = dyn_cast<PPPragma>(Directive))
-      dumpPragma(SM, P);
-    else if (const PPPragmaComment *C = dyn_cast<PPPragmaComment>(Directive))
-      dumpPragmaComment(SM, C);
-    else if (const PPPragmaMark *M = dyn_cast<PPPragmaMark>(Directive))
-      dumpPragmaMark(SM, M);
-    else if (const PPPragmaDetectMismatch *MM =
-                 dyn_cast<PPPragmaDetectMismatch>(Directive))
-      dumpPragmaDetectMismatch(SM, MM);
-    else if (const PPPragmaDebug *Dbg = dyn_cast<PPPragmaDebug>(Directive))
-      dumpPragmaDebug(SM, Dbg);
-    else if (const PPPragmaMessage *Msg = dyn_cast<PPPragmaMessage>(Directive))
-      dumpPragmaMessage(SM, Msg);
-    else if (const PPMacroUndefined *Undef =
-                 dyn_cast<PPMacroUndefined>(Directive))
-      dumpMacroUndefined(SM, Undef);
-    else if (const PPIf *If = dyn_cast<PPIf>(Directive))
-      dumpIf(SM, If);
-    else if (const PPElse *Else = dyn_cast<PPElse>(Directive))
-      dumpElse(SM, Else);
-    else if (const PPElseIf *ElseIf = dyn_cast<PPElseIf>(Directive))
-      dumpElseIf(SM, ElseIf);
-    else if (const PPIfDef *IfDef = dyn_cast<PPIfDef>(Directive))
-      dumpIfDef(SM, IfDef);
-    else if (const PPIfNotDef *IfNotDef = dyn_cast<PPIfNotDef>(Directive))
-      dumpIfNotDef(SM, IfNotDef);
-    else if (const PPElseIfDef *ElseIfDef = dyn_cast<PPElseIfDef>(Directive))
-      dumpElseIfDef(SM, ElseIfDef);
-    else if (const PPElseIfNotDef *ElseIfNotDef =
-                 dyn_cast<PPElseIfNotDef>(Directive))
-      dumpElseIfNotDef(SM, ElseIfNotDef);
-    else if (const PPEndIf *EndIf = dyn_cast<PPEndIf>(Directive))
-      dumpEndIf(SM, EndIf);
-  }
-}
-
 namespace {
-
-class CheckPPTreeVisitor : public PPTreeVisitor<CheckPPTreeVisitor> {
-public:
-  bool visitIf(const PPIf *Directive) {
-    errs() << "If directive\n";
-    return true;
-  }
-};
 
 class CheckPPTreeConsumer : public PPTreeConsumer {
 public:
-  CheckPPTreeConsumer(ClangTidyCheck *Check) : Check(Check) {}
+  CheckPPTreeConsumer(ClangTidyCheck *Check, const SourceManager &SM)
+      : Check(Check), SM(SM) {}
   void endOfMainFile(const PPTree *Tree) override {
-    CheckPPTreeVisitor Visitor;
+    PPTreePrinter Visitor(llvm::errs(), SM);
     Visitor.visit(Tree);
     llvm::errs() << "End of main file: " << Tree->Directives.size()
                  << " directives.\n";
-    dumpDirectives(*SM, Tree->Directives);
   }
 
   ClangTidyCheck *Check;
-  const SourceManager *SM{};
+  const SourceManager &SM;
 };
 
 } // namespace
@@ -253,7 +55,7 @@ ClangTidyCheck::ClangTidyCheck(StringRef CheckName, ClangTidyContext *Context)
 void ClangTidyCheck::registerPPCallbacks(const SourceManager &SM,
                                          Preprocessor *PP,
                                          Preprocessor *ModuleExpanderPP) {
-  TreeConsumer.reset(new CheckPPTreeConsumer(this));
+  TreeConsumer.reset(new CheckPPTreeConsumer(this, SM));
   TreeBuilder.reset(
       new PPTreeBuilder(TreeConsumer.get(), PP, SM, getLangOpts()));
 }
