@@ -25,128 +25,135 @@ bool PPTreePrinter::visitDirectives(const PPDirectiveList &List) {
 }
 
 bool PPTreePrinter::visitInclusion(const PPInclusion *D) {
-  Stream << "Inclusion\n"
-         << indent() << D->HashLoc.printToString(SM) << '\n'
-         << indent() << D->IncludeTok.getIdentifierInfo()->getName().str()
+  Stream << indent() << "Inclusion\n"
+         << fieldIndent() << D->HashLoc.printToString(SM) << '\n'
+         << fieldIndent() << D->IncludeTok.getIdentifierInfo()->getName().str()
          << '\n'
-         << indent() << D->FileName << '\n'
-         << indent() << (D->IsAngled ? "Angled\n" : "") << indent()
+         << fieldIndent() << D->FileName << '\n'
+         << fieldIndent() << (D->IsAngled ? "Angled\n" : "") << fieldIndent()
          << printToString(SM, D->FilenameRange) << '\n'
-         << indent() << D->File->getDir()->getName().str() << '\n'
-         << indent() << D->SearchPath << '\n'
-         << indent() << D->RelativePath << '\n'
-         << indent() << (D->Imported != nullptr ? "<Imported>\n" : "")
-         << indent() << "FileType " << indent() << D->FileType << '\n';
+         << fieldIndent() << D->File->getDir()->getName().str() << '\n'
+         << fieldIndent() << D->SearchPath << '\n'
+         << fieldIndent() << D->RelativePath << '\n'
+         << fieldIndent() << (D->Imported != nullptr ? "<Imported>\n" : "")
+         << fieldIndent() << "FileType " << fieldIndent() << D->FileType
+         << '\n';
   return true;
 }
 
 bool PPTreePrinter::visitIdent(const PPIdent *D) {
-  Stream << "Ident\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Str << '\n';
+  Stream << indent() << "Ident\n"
+         << fieldIndent() << D->Loc.printToString(SM) << '\n'
+         << fieldIndent() << D->Str << '\n';
   return true;
 }
 bool PPTreePrinter::visitPragma(const PPPragma *D) {
-  Stream << "Pragma\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << "Introducer " << D->Introducer << '\n';
+  Stream << indent() << "Pragma\n"
+         << fieldIndent() << D->Loc.printToString(SM) << '\n'
+         << fieldIndent() << "Introducer " << D->Introducer << '\n';
   return true;
 }
 bool PPTreePrinter::visitPragmaComment(const PPPragmaComment *D) {
-  Stream << "Comment\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Kind->getName().str() << '\n'
-         << indent() << D->Str << '\n';
+  Stream << indent() << "Comment\n"
+         << fieldIndent() << D->Loc.printToString(SM) << '\n'
+         << fieldIndent() << D->Kind->getName().str() << '\n'
+         << fieldIndent() << D->Str << '\n';
   return true;
 }
 bool PPTreePrinter::visitPragmaMark(const PPPragmaMark *D) {
-  Stream << "Mark\n"
+  Stream << indent() << "Mark\n"
          << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Trivia << '\n';
+         << fieldIndent() << D->Trivia << '\n';
   return true;
 }
 bool PPTreePrinter::visitPragmaDetectMismatch(const PPPragmaDetectMismatch *D) {
-  Stream << "Detect Mismatch\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Name << '\n'
-         << indent() << D->Value << '\n';
+  Stream << indent() << "Detect Mismatch\n"
+         << fieldIndent() << D->Loc.printToString(SM) << '\n'
+         << fieldIndent() << D->Name << '\n'
+         << fieldIndent() << D->Value << '\n';
   return true;
 }
 bool PPTreePrinter::visitPragmaDebug(const PPPragmaDebug *D) {
-  Stream << "Debug\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->DebugType << '\n';
+  Stream << indent() << "Debug\n"
+         << fieldIndent() << D->Loc.printToString(SM) << '\n'
+         << fieldIndent() << D->DebugType << '\n';
   return true;
 }
 bool PPTreePrinter::visitPragmaMessage(const PPPragmaMessage *D) {
-  Stream << "Message\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Namespace << '\n'
-         << indent() << D->Kind << '\n'
-         << indent() << D->Str << '\n';
+  Stream << indent() << "Message\n"
+         << fieldIndent() << D->Loc.printToString(SM) << '\n'
+         << fieldIndent() << D->Namespace << '\n'
+         << fieldIndent() << D->Kind << '\n'
+         << fieldIndent() << D->Str << '\n';
   return true;
 }
 bool PPTreePrinter::visitMacroDefined(const PPMacroDefined *D) {
-  Stream << "Macro Defined\n"
-         << indent() << D->Name.getIdentifierInfo()->getName().str() << '\n';
+  Stream << indent() << "Macro Defined\n"
+         << fieldIndent() << D->Name.getIdentifierInfo()->getName().str()
+         << '\n';
   return true;
 }
 bool PPTreePrinter::visitMacroUndefined(const PPMacroUndefined *D) {
-  Stream << "Macro Undefined\n"
-         << indent() << D->Name.getIdentifierInfo()->getName().str() << '\n';
+  Stream << indent() << "Macro Undefined\n"
+         << fieldIndent() << D->Name.getIdentifierInfo()->getName().str()
+         << '\n';
   return true;
 }
 bool PPTreePrinter::visitIf(const PPIf *D) {
-  Stream << "If\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->ConditionRange.getBegin().printToString(SM) << ", "
-         << D->ConditionRange.getEnd().printToString(SM) << '\n'
-         << indent() << D->ConditionValue << '\n';
+  Stream << indent() << "If\n"
+         << fieldIndent() << D->Loc.printToString(SM) << '\n'
+         << fieldIndent() << D->ConditionRange.getBegin().printToString(SM)
+         << ", " << D->ConditionRange.getEnd().printToString(SM) << '\n'
+         << fieldIndent() << D->ConditionValue << '\n';
   return true;
 }
 bool PPTreePrinter::visitElse(const PPElse *D) {
-  Stream << "Else\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->IfLoc.printToString(SM) << '\n';
+  Stream << indent() << "Else\n"
+         << fieldIndent() << D->Loc.printToString(SM) << '\n'
+         << fieldIndent() << D->IfLoc.printToString(SM) << '\n';
   return true;
 }
 bool PPTreePrinter::visitElseIf(const PPElseIf *D) {
-  Stream << "ElseIf\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->ConditionRange.getBegin().printToString(SM) << ", "
-         << D->ConditionRange.getEnd().printToString(SM) << '\n'
-         << indent() << D->ConditionValue << '\n'
-         << indent() << D->IfLoc.printToString(SM) << '\n';
+  Stream << indent() << "ElseIf\n"
+         << fieldIndent() << D->Loc.printToString(SM) << '\n'
+         << fieldIndent() << D->ConditionRange.getBegin().printToString(SM)
+         << ", " << D->ConditionRange.getEnd().printToString(SM) << '\n'
+         << fieldIndent() << D->ConditionValue << '\n'
+         << fieldIndent() << D->IfLoc.printToString(SM) << '\n';
   return true;
 }
 bool PPTreePrinter::visitIfDef(const PPIfDef *D) {
-  Stream << "IfDef\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Name.getIdentifierInfo()->getName().str() << '\n';
+  Stream << indent() << "IfDef\n"
+         << fieldIndent() << D->Loc.printToString(SM) << '\n'
+         << fieldIndent() << D->Name.getIdentifierInfo()->getName().str()
+         << '\n';
   return true;
 }
 bool PPTreePrinter::visitIfNotDef(const PPIfNotDef *D) {
-  Stream << "IfNotDef\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Name.getIdentifierInfo()->getName().str() << '\n';
+  Stream << indent() << "IfNotDef\n"
+         << fieldIndent() << D->Loc.printToString(SM) << '\n'
+         << fieldIndent() << D->Name.getIdentifierInfo()->getName().str()
+         << '\n';
   return true;
 }
 bool PPTreePrinter::visitElseIfDef(const PPElseIfDef *D) {
-  Stream << "ElseIfDef\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Name.getIdentifierInfo()->getName().str() << '\n';
+  Stream << indent() << "ElseIfDef\n"
+         << fieldIndent() << D->Loc.printToString(SM) << '\n'
+         << fieldIndent() << D->Name.getIdentifierInfo()->getName().str()
+         << '\n';
   return true;
 }
 bool PPTreePrinter::visitElseIfNotDef(const PPElseIfNotDef *D) {
-  Stream << "ElseIfNotDef\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->Name.getIdentifierInfo()->getName().str() << '\n';
+  Stream << indent() << "ElseIfNotDef\n"
+         << fieldIndent() << D->Loc.printToString(SM) << '\n'
+         << fieldIndent() << D->Name.getIdentifierInfo()->getName().str()
+         << '\n';
   return true;
 }
 bool PPTreePrinter::visitEndIf(const PPEndIf *D) {
-  Stream << "EndIf\n"
-         << indent() << D->Loc.printToString(SM) << '\n'
-         << indent() << D->IfLoc.printToString(SM) << '\n';
+  Stream << indent() << "EndIf\n"
+         << fieldIndent() << D->Loc.printToString(SM) << '\n'
+         << fieldIndent() << D->IfLoc.printToString(SM) << '\n';
   return true;
 }
 
