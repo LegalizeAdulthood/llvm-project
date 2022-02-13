@@ -8,6 +8,7 @@
 
 #include "ClangTidyCheck.h"
 #include "utils/PPTree.h"
+#include "utils/PPTreeMatchers.h"
 #include "clang/Lex/MacroInfo.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
