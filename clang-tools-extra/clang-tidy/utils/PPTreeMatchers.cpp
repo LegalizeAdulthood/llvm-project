@@ -32,8 +32,7 @@ const PPMatcher<PPElseIfDef> elseIfDefDirective;
 const PPMatcher<PPElseIfNotDef> elseIfNotDefDirective;
 const PPMatcher<PPEndIf> endIfDirective;
 
-class MatchPPTreeVisitor : public PPTreeVisitor<MatchPPTreeVisitor> {
-};
+class MatchPPTreeVisitor : public PPTreeVisitor<MatchPPTreeVisitor> {};
 
 void DirectiveMatchFinder::match(const PPTree *Tree) {
   MatchPPTreeVisitor Visitor;

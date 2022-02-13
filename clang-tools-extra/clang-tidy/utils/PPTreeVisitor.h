@@ -10,14 +10,23 @@
 #define LLVM_CLANG_TOOLS_EXTRA_CLANG_TIDY_PPTREEVISITOR_H
 
 #include "PPTree.h"
+#include <string>
+
+namespace llvm {
+class raw_ostream;
+} // namespace llvm
 
 namespace clang {
+
+class SourceManager;
+
 namespace tidy {
 namespace utils {
 
 template <class Derived> class PPTreeVisitor {
 public:
   void visit(const PPTree *Tree) { visitDirectives(Tree->Directives); }
+  bool visitDirectives(const PPDirectiveList &List);
 
   bool visitInclusion(const PPInclusion *Directive) { return true; }
   bool visitIdent(const PPIdent *Directive) { return true; }
@@ -38,16 +47,14 @@ public:
   bool visitIfNotDef(const PPIfNotDef *Directive) { return true; }
   bool visitElseIfDef(const PPElseIfDef *Directive) { return true; }
   bool visitElseIfNotDef(const PPElseIfNotDef *Directive) { return true; }
-  bool visitEndIf(const PPEndIf *Directive) { return true; }
+  bool visitEndIf(const PPEndIf *Directive);
 
 private:
   Derived &getDerived() { return *static_cast<Derived *>(this); }
-
-  void visitDirectives(const PPDirectiveList &List);
 };
 
 template <class Derived>
-void PPTreeVisitor<Derived>::visitDirectives(const PPDirectiveList &List) {
+bool PPTreeVisitor<Derived>::visitDirectives(const PPDirectiveList &List) {
   for (const PPDirective *Directive : List) {
     switch (Directive->getKind()) {
     case PPDirective::DK_Inclusion:
@@ -84,13 +91,13 @@ void PPTreeVisitor<Derived>::visitDirectives(const PPDirectiveList &List) {
     case PPDirective::DK_If: {
       const PPIf *If = dyn_cast<PPIf>(Directive);
       getDerived().visitIf(If);
-      visitDirectives(If->Directives);
+      getDerived().visitDirectives(If->Directives);
       break;
     }
     case PPDirective::DK_Else: {
       const PPElse *Else = dyn_cast<PPElse>(Directive);
       getDerived().visitElse(Else);
-      visitDirectives(Else->Directives);
+      getDerived().visitDirectives(Else->Directives);
       break;
     }
     case PPDirective::DK_ElseIf: {
@@ -101,25 +108,25 @@ void PPTreeVisitor<Derived>::visitDirectives(const PPDirectiveList &List) {
     case PPDirective::DK_IfDef: {
       const PPIfDef *IfDef = dyn_cast<PPIfDef>(Directive);
       getDerived().visitIfDef(IfDef);
-      visitDirectives(IfDef->Directives);
+      getDerived().visitDirectives(IfDef->Directives);
       break;
     }
     case PPDirective::DK_IfNotDef: {
       const PPIfNotDef *IfNotDef = dyn_cast<PPIfNotDef>(Directive);
       getDerived().visitIfNotDef(IfNotDef);
-      visitDirectives(IfNotDef->Directives);
+      getDerived().visitDirectives(IfNotDef->Directives);
       break;
     }
     case PPDirective::DK_ElseIfDef: {
       const PPElseIfDef *ElseIfDef = dyn_cast<PPElseIfDef>(Directive);
       getDerived().visitElseIfDef(ElseIfDef);
-      visitDirectives(ElseIfDef->Directives);
+      getDerived().visitDirectives(ElseIfDef->Directives);
       break;
     }
     case PPDirective::DK_ElseIfNotDef: {
       const PPElseIfNotDef *ElseIfNotDef = dyn_cast<PPElseIfNotDef>(Directive);
       getDerived().visitElseIfNotDef(ElseIfNotDef);
-      visitDirectives(ElseIfNotDef->Directives);
+      getDerived().visitDirectives(ElseIfNotDef->Directives);
       break;
     }
     case PPDirective::DK_EndIf:
@@ -127,7 +134,41 @@ void PPTreeVisitor<Derived>::visitDirectives(const PPDirectiveList &List) {
       break;
     }
   }
+  return true;
 }
+
+class PPTreePrinter : public PPTreeVisitor<PPTreePrinter> {
+public:
+  PPTreePrinter(raw_ostream &Stream, const SourceManager &SourceManager)
+      : Stream(Stream), SM(SourceManager) {}
+
+  bool visitDirectives(const PPDirectiveList &List);
+  bool visitInclusion(const PPInclusion *Directive);
+  bool visitIdent(const PPIdent *Directive);
+  bool visitPragma(const PPPragma *Directive);
+  bool visitPragmaComment(const PPPragmaComment *Directive);
+  bool visitPragmaDebug(const PPPragmaDebug *Directive);
+  bool visitPragmaDetectMismatch(const PPPragmaDetectMismatch *Directive);
+  bool visitPragmaMark(const PPPragmaMark *Directive);
+  bool visitPragmaMessage(const PPPragmaMessage *Directive);
+  bool visitMacroDefined(const PPMacroDefined *Directive);
+  bool visitMacroUndefined(const PPMacroUndefined *Directive);
+  bool visitIf(const PPIf *Directive);
+  bool visitElse(const PPElse *Directive);
+  bool visitElseIf(const PPElseIf *Directive);
+  bool visitIfDef(const PPIfDef *Directive);
+  bool visitIfNotDef(const PPIfNotDef *Directive);
+  bool visitElseIfDef(const PPElseIfDef *Directive);
+  bool visitElseIfNotDef(const PPElseIfNotDef *Directive);
+  bool visitEndIf(const PPEndIf *Directive);
+
+private:
+  std::string indent() const { return std::string(IndentLevel * 2, '.'); }
+
+  raw_ostream &Stream;
+  const SourceManager &SM;
+  size_t IndentLevel = 0;
+};
 
 } // namespace utils
 } // namespace tidy
