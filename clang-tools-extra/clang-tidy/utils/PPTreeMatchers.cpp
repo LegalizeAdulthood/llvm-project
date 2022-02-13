@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "PPTreeMatchers.h"
+#include "PPTreeVisitor.h"
 
 namespace clang {
 namespace tidy {
