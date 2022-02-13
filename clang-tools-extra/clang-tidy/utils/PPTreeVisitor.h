@@ -13,7 +13,9 @@
 #include <string>
 
 namespace llvm {
+
 class raw_ostream;
+
 } // namespace llvm
 
 namespace clang {
@@ -47,7 +49,7 @@ public:
   bool visitIfNotDef(const PPIfNotDef *Directive) { return true; }
   bool visitElseIfDef(const PPElseIfDef *Directive) { return true; }
   bool visitElseIfNotDef(const PPElseIfNotDef *Directive) { return true; }
-  bool visitEndIf(const PPEndIf *Directive);
+  bool visitEndIf(const PPEndIf *Directive) { return true; }
 
 private:
   Derived &getDerived() { return *static_cast<Derived *>(this); }
@@ -58,79 +60,106 @@ bool PPTreeVisitor<Derived>::visitDirectives(const PPDirectiveList &List) {
   for (const PPDirective *Directive : List) {
     switch (Directive->getKind()) {
     case PPDirective::DK_Inclusion:
-      getDerived().visitInclusion(dyn_cast<PPInclusion>(Directive));
+      if (!getDerived().visitInclusion(dyn_cast<PPInclusion>(Directive)))
+        return false;
       break;
     case PPDirective::DK_Ident:
-      getDerived().visitIdent(dyn_cast<PPIdent>(Directive));
+      if (!getDerived().visitIdent(dyn_cast<PPIdent>(Directive)))
+        return false;
       break;
     case PPDirective::DK_Pragma:
-      getDerived().visitPragma(dyn_cast<PPPragma>(Directive));
+      if (!getDerived().visitPragma(dyn_cast<PPPragma>(Directive)))
+        return false;
       break;
     case PPDirective::DK_PragmaComment:
-      getDerived().visitPragmaComment(dyn_cast<PPPragmaComment>(Directive));
+      if (!getDerived().visitPragmaComment(
+              dyn_cast<PPPragmaComment>(Directive)))
+        return false;
       break;
     case PPDirective::DK_PragmaDebug:
-      getDerived().visitPragmaDebug(dyn_cast<PPPragmaDebug>(Directive));
+      if (!getDerived().visitPragmaDebug(dyn_cast<PPPragmaDebug>(Directive)))
+        return false;
       break;
     case PPDirective::DK_PragmaDetectMismatch:
-      getDerived().visitPragmaDetectMismatch(
-          dyn_cast<PPPragmaDetectMismatch>(Directive));
+      if (!getDerived().visitPragmaDetectMismatch(
+              dyn_cast<PPPragmaDetectMismatch>(Directive)))
+        return false;
       break;
     case PPDirective::DK_PragmaMark:
-      getDerived().visitPragmaMark(dyn_cast<PPPragmaMark>(Directive));
+      if (!getDerived().visitPragmaMark(dyn_cast<PPPragmaMark>(Directive)))
+        return false;
       break;
     case PPDirective::DK_PragmaMessage:
-      getDerived().visitPragmaMessage(dyn_cast<PPPragmaMessage>(Directive));
+      if (!getDerived().visitPragmaMessage(
+              dyn_cast<PPPragmaMessage>(Directive)))
+        return false;
       break;
     case PPDirective::DK_MacroDefined:
-      getDerived().visitMacroDefined(dyn_cast<PPMacroDefined>(Directive));
+      if (!getDerived().visitMacroDefined(dyn_cast<PPMacroDefined>(Directive)))
+        return false;
       break;
     case PPDirective::DK_MacroUndefined:
-      getDerived().visitMacroUndefined(dyn_cast<PPMacroUndefined>(Directive));
+      if (!getDerived().visitMacroUndefined(
+              dyn_cast<PPMacroUndefined>(Directive)))
+        return false;
       break;
     case PPDirective::DK_If: {
       const PPIf *If = dyn_cast<PPIf>(Directive);
-      getDerived().visitIf(If);
-      getDerived().visitDirectives(If->Directives);
+      if (!getDerived().visitIf(If))
+        return false;
+      if (!getDerived().visitDirectives(If->Directives))
+        return false;
       break;
     }
     case PPDirective::DK_Else: {
       const PPElse *Else = dyn_cast<PPElse>(Directive);
-      getDerived().visitElse(Else);
-      getDerived().visitDirectives(Else->Directives);
+      if (!getDerived().visitElse(Else))
+        return false;
+      if (!getDerived().visitDirectives(Else->Directives))
+        return false;
       break;
     }
     case PPDirective::DK_ElseIf: {
       const PPElseIf *ElseIf = dyn_cast<PPElseIf>(Directive);
-      getDerived().visitElseIf(ElseIf);
+      if (!getDerived().visitElseIf(ElseIf))
+        return false;
       break;
     }
     case PPDirective::DK_IfDef: {
       const PPIfDef *IfDef = dyn_cast<PPIfDef>(Directive);
-      getDerived().visitIfDef(IfDef);
-      getDerived().visitDirectives(IfDef->Directives);
+      if (!getDerived().visitIfDef(IfDef))
+        return false;
+      if (!getDerived().visitDirectives(IfDef->Directives))
+        return false;
       break;
     }
     case PPDirective::DK_IfNotDef: {
       const PPIfNotDef *IfNotDef = dyn_cast<PPIfNotDef>(Directive);
-      getDerived().visitIfNotDef(IfNotDef);
-      getDerived().visitDirectives(IfNotDef->Directives);
+      if (!getDerived().visitIfNotDef(IfNotDef))
+        return false;
+      if (!getDerived().visitDirectives(IfNotDef->Directives))
+        return false;
       break;
     }
     case PPDirective::DK_ElseIfDef: {
       const PPElseIfDef *ElseIfDef = dyn_cast<PPElseIfDef>(Directive);
-      getDerived().visitElseIfDef(ElseIfDef);
-      getDerived().visitDirectives(ElseIfDef->Directives);
+      if (!getDerived().visitElseIfDef(ElseIfDef))
+        return false;
+      if (!getDerived().visitDirectives(ElseIfDef->Directives))
+        return false;
       break;
     }
     case PPDirective::DK_ElseIfNotDef: {
       const PPElseIfNotDef *ElseIfNotDef = dyn_cast<PPElseIfNotDef>(Directive);
-      getDerived().visitElseIfNotDef(ElseIfNotDef);
-      getDerived().visitDirectives(ElseIfNotDef->Directives);
+      if (!getDerived().visitElseIfNotDef(ElseIfNotDef))
+        return false;
+      if (!getDerived().visitDirectives(ElseIfNotDef->Directives))
+        return false;
       break;
     }
     case PPDirective::DK_EndIf:
-      getDerived().visitEndIf(dyn_cast<PPEndIf>(Directive));
+      if (!getDerived().visitEndIf(dyn_cast<PPEndIf>(Directive)))
+        return false;
       break;
     }
   }
@@ -164,6 +193,9 @@ public:
 
 private:
   std::string indent() const { return std::string(IndentLevel * 2, '.'); }
+  std::string fieldIndent() const {
+    return std::string((IndentLevel + 1) * 2, '.');
+  }
 
   raw_ostream &Stream;
   const SourceManager &SM;
