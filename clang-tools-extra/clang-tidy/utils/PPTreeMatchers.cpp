@@ -100,7 +100,7 @@ public:
         HasSubMatchers(HashLoc || IncludeTok || FileName || IsAngled ||
                        SearchPath || RelativePath || FileType) {}
 
-  bool match(const PPInclusion *Directive);
+  bool match(const PPInclusion *Directive) const;
 
 private:
   Optional<SourceLocationMatcher> HashLocMatcher;
@@ -113,7 +113,7 @@ private:
   bool HasSubMatchers;
 };
 
-bool PPInclusionMatcher::match(const PPInclusion *Directive) {
+bool PPInclusionMatcher::match(const PPInclusion *Directive) const {
   if (!HasSubMatchers)
     return false;
 
@@ -136,10 +136,52 @@ bool PPInclusionMatcher::match(const PPInclusion *Directive) {
   return M;
 }
 
+class PPIdentMatcher {
+public:
+  PPIdentMatcher(Optional<SourceLocationMatcher> Loc,
+                 Optional<StringRefMatcher> Str)
+      : LocMatcher(Loc), StrMatcher(Str), HasSubMatchers(Loc || Str) {}
+
+  bool match(const PPIdent *Directive) const;
+
+private:
+  Optional<SourceLocationMatcher> LocMatcher;
+  Optional<StringRefMatcher> StrMatcher;
+  bool HasSubMatchers;
+};
+
+bool PPIdentMatcher::match(const PPIdent *Directive) const {
+  if (!HasSubMatchers)
+    return false;
+
+  bool M = true;
+  if (LocMatcher.hasValue())
+    M = M && LocMatcher.getValue().match(Directive->Loc);
+  if (StrMatcher.hasValue())
+    M = M && StrMatcher.getValue().match(Directive->Str);
+
+  return M;
+}
+
+template <typename T> ValueMatcher<T> hasValue(T Value) {
+  return ValueMatcher<T>(Value);
+}
+
+StringRefMatcher hasStringRef(const char *Value) {
+  return StringRefMatcher(Value);
+}
+
+SourceLocationMatcher hasLocation(SourceLocation Loc) {
+  return SourceLocationMatcher(Loc);
+}
+
 class MatchPPTreeVisitor : public PPTreeVisitor<MatchPPTreeVisitor> {
 public:
   void addMatcher(PPInclusionMatcher &&Matcher) {
     InclusionMatchers.emplace_back(std::move(Matcher));
+  }
+  void addMatcher(PPIdentMatcher &&Matcher) {
+    IdentMatchers.emplace_back(std::move(Matcher));
   }
 
   bool visitInclusion(const PPInclusion *Directive);
@@ -163,17 +205,22 @@ public:
 
 private:
   std::vector<PPInclusionMatcher> InclusionMatchers;
+  std::vector<PPIdentMatcher> IdentMatchers;
 };
 
 bool MatchPPTreeVisitor::visitInclusion(const PPInclusion *Directive) {
-  for (PPInclusionMatcher Matcher : InclusionMatchers) {
-    if (Matcher.match(Directive))
-      return false;
-  }
-  return true;
+  return llvm::none_of(InclusionMatchers,
+                       [Directive](const PPInclusionMatcher &Matcher) {
+                         return Matcher.match(Directive);
+                       });
 }
 
-bool MatchPPTreeVisitor::visitIdent(const PPIdent *Directive) { return true; }
+bool MatchPPTreeVisitor::visitIdent(const PPIdent *Directive) {
+  return llvm::none_of(IdentMatchers,
+                       [Directive](const PPIdentMatcher &Matcher) {
+                         return Matcher.match(Directive);
+                       });
+}
 
 bool MatchPPTreeVisitor::visitPragma(const PPPragma *Directive) { return true; }
 
@@ -233,16 +280,24 @@ bool MatchPPTreeVisitor::visitEndIf(const PPEndIf *Directive) { return true; }
 
 void DirectiveMatchFinder::match(const PPTree *Tree) {
   MatchPPTreeVisitor Visitor;
-  Optional<SourceLocationMatcher> HashLoc;
-  Optional<TokenMatcher> IncludeTok;
-  Optional<StringRefMatcher> FileName;
-  Optional<BoolMatcher> IsAngled(BoolMatcher(true));
-  Optional<StringRefMatcher> SearchPath;
-  Optional<StringRefMatcher> RelativePath;
-  Optional<CharacteristicKindMatcher> CharacteristicKind;
-  Visitor.addMatcher(PPInclusionMatcher(HashLoc, IncludeTok, FileName, IsAngled,
-                                        SearchPath, RelativePath,
-                                        CharacteristicKind));
+  {
+    Optional<SourceLocationMatcher> HashLoc;
+    Optional<TokenMatcher> IncludeTok;
+    Optional<StringRefMatcher> FileName;
+    Optional<BoolMatcher> IsAngled(BoolMatcher(true));
+    Optional<StringRefMatcher> SearchPath;
+    Optional<StringRefMatcher> RelativePath;
+    Optional<CharacteristicKindMatcher> CharacteristicKind;
+    Visitor.addMatcher(PPInclusionMatcher(HashLoc, IncludeTok, FileName,
+                                          IsAngled, SearchPath, RelativePath,
+                                          CharacteristicKind));
+  }
+  {
+    Optional<SourceLocationMatcher> Loc;
+    Optional<StringRefMatcher> Str;
+    Visitor.addMatcher(PPIdentMatcher(Loc, Str));
+  }
+
   Visitor.visit(Tree);
 }
 

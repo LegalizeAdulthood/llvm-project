@@ -35,6 +35,9 @@ public:
     Visitor.visit(Tree);
     llvm::errs() << "End of main file: " << Tree->Directives.size()
                  << " directives.\n";
+
+    DirectiveMatchFinder Finder;
+    Finder.match(Tree);
   }
 
   ClangTidyCheck *Check;
