@@ -58,3 +58,22 @@ void f6()
 }
 #endif
 #endif
+
+#if 0
+#elif defined(USE_FOO)
+#if USE_FOO
+void f7()
+{
+  extern void foo();
+  foo();
+}
+#endif
+#endif
+
+#if defined(USE_FOO) && USE_FOO
+void f8()
+{
+  extern void foo();
+  foo();
+}
+#endif
