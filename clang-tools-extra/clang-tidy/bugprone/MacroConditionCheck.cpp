@@ -38,6 +38,13 @@ struct ConditionMacro {
   std::vector<SourceLocation> ValueUsedLocs;
 };
 
+using MacroReferenceList = std::vector<const ConditionMacro *>;
+
+struct MacroReferences {
+  MacroReferenceList Define;
+  MacroReferenceList Value;
+};
+
 class MacroConditionCallbacks : public PPCallbacks {
 public:
   MacroConditionCallbacks(MacroConditionCheck *Check, const SourceManager &SM,
@@ -70,17 +77,18 @@ public:
   void EndOfMainFile() override;
 
 private:
-  std::vector<ConditionMacro *>
+  MacroReferences
   macrosReferencedInCondition(const SourceLocation &Loc,
                               const SourceRange &ConditionRange);
-  std::vector<ConditionMacro *> namesReferenced(SourceLocation Loc,
-                                                const Token &MacroNameTok);
+  MacroReferences namesReferenced(SourceLocation Loc,
+                                  const Token &MacroNameTok);
+  void checkConditions();
 
   SmallVector<ConditionMacro> Macros;
   MacroConditionCheck *Check;
   const SourceManager &SM;
   const LangOptions &LangOpts;
-  std::vector<std::vector<ConditionMacro *>> Conditions;
+  std::vector<MacroReferences> Conditions;
 };
 
 void MacroConditionCallbacks::MacroDefined(const Token &MacroNameTok,
@@ -111,7 +119,7 @@ void MacroConditionCallbacks::Defined(const Token &MacroNameTok,
   }
 }
 
-std::vector<ConditionMacro *>
+MacroReferences
 MacroConditionCallbacks::macrosReferencedInCondition(
     const SourceLocation &Loc, const SourceRange &ConditionRange) {
   CharSourceRange CharRange = Lexer::makeFileCharRange(
@@ -122,7 +130,7 @@ MacroConditionCallbacks::macrosReferencedInCondition(
   Token Tok;
   bool InsideDefined = false;
   bool AtEnd;
-  std::vector<ConditionMacro *> Referenced;
+  MacroReferences Referenced;
   do {
     AtEnd = Lex.LexFromRawLexer(Tok);
     if (!Tok.is(tok::raw_identifier))
@@ -145,11 +153,11 @@ MacroConditionCallbacks::macrosReferencedInCondition(
       InsideDefined = false;
       It->DefinedChecked = true;
       It->DefinedCheckedLocs.push_back(Loc);
-      Referenced.push_back(It);
+      Referenced.Define.push_back(It);
     } else {
       It->ValueUsed = true;
       It->ValueUsedLocs.push_back(Loc);
-      Referenced.push_back(It);
+      Referenced.Value.push_back(It);
     }
   } while (!AtEnd);
   return Referenced;
@@ -160,20 +168,32 @@ void MacroConditionCallbacks::If(SourceLocation Loc, SourceRange ConditionRange,
   Conditions.push_back(macrosReferencedInCondition(Loc, ConditionRange));
 }
 
-std::vector<ConditionMacro *>
+MacroReferences
 MacroConditionCallbacks::namesReferenced(SourceLocation Loc,
                                          const Token &MacroNameTok) {
   StringRef Name = MacroNameTok.getIdentifierInfo()->getName();
   auto It = llvm::find_if(Macros, [Name](const ConditionMacro &Macro) {
     return Macro.Name.getIdentifierInfo()->getName() == Name;
   });
-  std::vector<ConditionMacro *> Referenced;
+  MacroReferences Referenced;
   if (It != Macros.end()) {
     It->DefinedChecked = true;
     It->DefinedCheckedLocs.push_back(Loc);
-    Referenced.push_back(It);
+    Referenced.Define.push_back(It);
   }
   return Referenced;
+}
+
+void MacroConditionCallbacks::checkConditions() {
+  // Macros tested for definition at this scope have to be tested for value at
+  // this scope.
+  for (const ConditionMacro *Macro : Conditions.back().Define) {
+    auto It = llvm::find(Conditions.back().Value, Macro);
+    if (It == Conditions.back().Value.end()) {
+      std::cerr << "Macro " << Macro->Name.getIdentifierInfo()->getName().str()
+                << " checked for define, but not value\n";
+    }
+  }
 }
 
 void MacroConditionCallbacks::Ifdef(SourceLocation Loc,
@@ -191,12 +211,14 @@ void MacroConditionCallbacks::Ifndef(SourceLocation Loc,
 void MacroConditionCallbacks::Elifdef(SourceLocation Loc,
                                       const Token &MacroNameTok,
                                       const MacroDefinition &MD) {
+  checkConditions();
   Conditions.back() = namesReferenced(Loc, MacroNameTok);
 }
 
 void MacroConditionCallbacks::Elifndef(SourceLocation Loc,
                                        const Token &MacroNameTok,
                                        const MacroDefinition &MD) {
+  checkConditions();
   Conditions.back() = namesReferenced(Loc, MacroNameTok);
 }
 
@@ -204,36 +226,31 @@ void MacroConditionCallbacks::Elif(SourceLocation Loc,
                                    SourceRange ConditionRange,
                                    ConditionValueKind ConditionValue,
                                    SourceLocation IfLoc) {
-  std::cout << "#elif\n  " << ConditionRange.getBegin().printToString(SM)
-            << "\n  " << ConditionRange.getEnd().printToString(SM) << '\n';
+  checkConditions();
   Conditions.back() = macrosReferencedInCondition(Loc, ConditionRange);
 }
 
 void MacroConditionCallbacks::Elifdef(SourceLocation Loc,
                                       SourceRange ConditionRange,
                                       SourceLocation IfLoc) {
-  std::cout << "#elifdef\n  " << ConditionRange.getBegin().printToString(SM)
-            << "\n  " << ConditionRange.getEnd().printToString(SM) << '\n';
+  checkConditions();
   Conditions.back() = macrosReferencedInCondition(Loc, ConditionRange);
 }
 
 void MacroConditionCallbacks::Elifndef(SourceLocation Loc,
                                        SourceRange ConditionRange,
                                        SourceLocation IfLoc) {
-  std::cout << "#elifndef\n  " << ConditionRange.getBegin().printToString(SM)
-            << "\n  " << ConditionRange.getEnd().printToString(SM) << '\n';
+  checkConditions();
   Conditions.back() = macrosReferencedInCondition(Loc, ConditionRange);
 }
 
 void MacroConditionCallbacks::Else(SourceLocation Loc, SourceLocation IfLoc) {
-  std::cout << "#else\n  " << Loc.printToString(SM) << "\n  "
-            << IfLoc.printToString(SM) << '\n';
-  Conditions.back().clear();
+  checkConditions();
+  Conditions.back() = MacroReferences{};
 }
 
 void MacroConditionCallbacks::Endif(SourceLocation Loc, SourceLocation IfLoc) {
-  std::cout << "#endif\n  " << Loc.printToString(SM) << "\n  "
-            << IfLoc.printToString(SM) << '\n';
+  checkConditions();
   Conditions.pop_back();
 }
 

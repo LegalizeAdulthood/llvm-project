@@ -49,8 +49,9 @@ void f5()
 }
 #endif
 
-#ifdef USE_FOO
-#if USE_FOO
+#define USE_GRONK 0
+#ifdef USE_GRONK
+#if USE_GRONK
 void f6()
 {
   extern void foo();
@@ -60,8 +61,8 @@ void f6()
 #endif
 
 #if 0
-#elif defined(USE_FOO)
-#if USE_FOO
+#elif defined(USE_GRONK)
+#if USE_GRONK
 void f7()
 {
   extern void foo();
@@ -70,7 +71,7 @@ void f7()
 #endif
 #endif
 
-#if defined(USE_FOO) && USE_FOO
+#if defined(USE_GRONK) && USE_GRONK
 void f8()
 {
   extern void foo();
