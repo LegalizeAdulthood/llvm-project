@@ -97,6 +97,11 @@ Improvements to clang-tidy
 New checks
 ^^^^^^^^^^
 
+- New :doc:`modernize-prefer-scoped-enum
+  <clang-tidy/checks/modernize/prefer-scoped-enum>` check.
+
+  Replaces unscoped enums with scoped enums.
+
 New check aliases
 ^^^^^^^^^^^^^^^^^
 
