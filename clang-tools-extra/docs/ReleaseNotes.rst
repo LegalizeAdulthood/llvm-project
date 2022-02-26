@@ -160,6 +160,11 @@ New checks
   Replaces nested ``std::min`` and ``std::max`` calls with an initializer list
   where applicable.
 
+- New :doc:`modernize-prefer-scoped-enum
+  <clang-tidy/checks/modernize/prefer-scoped-enum>` check.
+
+  Replaces unscoped enums with scoped enums.
+
 - New :doc:`modernize-use-designated-initializers
   <clang-tidy/checks/modernize/use-designated-initializers>` check.
 

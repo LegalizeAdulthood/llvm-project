@@ -20,6 +20,7 @@
 #include "MakeUniqueCheck.h"
 #include "MinMaxUseInitializerListCheck.h"
 #include "PassByValueCheck.h"
+#include "PreferScopedEnumCheck.h"
 #include "RawStringLiteralCheck.h"
 #include "RedundantVoidArgCheck.h"
 #include "ReplaceAutoPtrCheck.h"
@@ -73,6 +74,8 @@ public:
     CheckFactories.registerCheck<MinMaxUseInitializerListCheck>(
         "modernize-min-max-use-initializer-list");
     CheckFactories.registerCheck<PassByValueCheck>("modernize-pass-by-value");
+    CheckFactories.registerCheck<PreferScopedEnumCheck>(
+        "modernize-prefer-scoped-enum");
     CheckFactories.registerCheck<UseDesignatedInitializersCheck>(
         "modernize-use-designated-initializers");
     CheckFactories.registerCheck<UseStartsEndsWithCheck>(

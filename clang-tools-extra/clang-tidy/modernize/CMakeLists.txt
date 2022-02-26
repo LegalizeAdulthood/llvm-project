@@ -19,6 +19,7 @@ add_clang_library(clangTidyModernizeModule
   MinMaxUseInitializerListCheck.cpp
   ModernizeTidyModule.cpp
   PassByValueCheck.cpp
+  PreferScopedEnumCheck.cpp
   RawStringLiteralCheck.cpp
   RedundantVoidArgCheck.cpp
   ReplaceAutoPtrCheck.cpp
