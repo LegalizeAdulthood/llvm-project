@@ -210,7 +210,11 @@ class CheckRunner:
     print('Running ' + repr(args) + '...')
     clang_tidy_output = try_run(args)
     print('------------------------ clang-tidy output -----------------------')
+<<<<<<< HEAD
     print(clang_tidy_output.encode(sys.stdout.encoding, errors="replace").decode(sys.stdout.encoding))
+=======
+    print(clang_tidy_output)
+>>>>>>> de61330ddc3c (Don't encode() clang-tidy output)
     print('------------------------------------------------------------------')
 
     diffs = self.get_diffs()
