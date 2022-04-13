@@ -106,6 +106,8 @@ def get_tidy_invocation(
     use_color,
     plugins,
     warnings_as_errors,
+    tidy_fix,
+    tidy_format,
 ):
     """Gets a command line for clang-tidy."""
     start = [clang_tidy_binary]
@@ -144,6 +146,10 @@ def get_tidy_invocation(
         start.append("-load=" + plugin)
     if warnings_as_errors:
         start.append("--warnings-as-errors=" + warnings_as_errors)
+    if tidy_fix:
+        start.append("-fix")
+        if tidy_format:
+            start.append("-format-style=file")
     start.append(f)
     return start
 
@@ -228,6 +234,8 @@ def run_tidy(args, clang_tidy_binary, tmpdir, build_path, queue, lock, failed_fi
             args.use_color,
             args.plugins,
             args.warnings_as_errors,
+            args.tidy_fix,
+            args.format,
         )
 
         proc = subprocess.Popen(
@@ -340,7 +348,12 @@ def main():
     parser.add_argument(
         "files", nargs="*", default=[".*"], help="files to be processed (regex on path)"
     )
-    parser.add_argument("-fix", action="store_true", help="apply fix-its")
+    parser.add_argument(
+        "-fix", action="store_true", help="apply fix-its with clang-apply-replacements"
+    )
+    parser.add_argument(
+        "-tidy-fix", action="store_true", help="apply fix-its with clang-tidy"
+    )
     parser.add_argument(
         "-format", action="store_true", help="Reformat code after applying fixes"
     )
@@ -450,6 +463,8 @@ def main():
             args.use_color,
             args.plugins,
             args.warnings_as_errors,
+            args.tidy_fix,
+            args.format,
         )
         invocation.append("-list-checks")
         invocation.append("-")
