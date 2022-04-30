@@ -97,6 +97,12 @@ Improvements to clang-tidy
 New checks
 ^^^^^^^^^^
 
+- New :doc:`modernize-macro-to-function
+  <clang-tidy/checks/modernize/macro-to-function>` check.
+
+  Replaces function-like macros that compute a value from their arguments
+  with a template function with a deduced return type.
+
 New check aliases
 ^^^^^^^^^^^^^^^^^
 
