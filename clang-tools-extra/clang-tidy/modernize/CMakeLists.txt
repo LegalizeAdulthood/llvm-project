@@ -9,10 +9,12 @@ add_clang_library(clangTidyModernizeModule
   ConcatNestedNamespacesCheck.cpp
   DeprecatedHeadersCheck.cpp
   DeprecatedIosBaseAliasesCheck.cpp
+  FunctionExpressionMatcher.cpp
   IntegralLiteralExpressionMatcher.cpp
   LoopConvertCheck.cpp
   LoopConvertUtils.cpp
   MacroToEnumCheck.cpp
+  MacroToFunctionCheck.cpp
   MakeSharedCheck.cpp
   MakeSmartPtrCheck.cpp
   MakeUniqueCheck.cpp

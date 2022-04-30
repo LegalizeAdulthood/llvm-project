@@ -154,6 +154,12 @@ New checks
   Detects variables and functions that can be marked as static or moved into
   an anonymous namespace to enforce internal linkage.
 
+- New :doc:`modernize-macro-to-function
+  <clang-tidy/checks/modernize/macro-to-function>` check.
+
+  Replaces function-like macros that compute a value from their arguments
+  with a template function with a deduced return type.
+
 - New :doc:`modernize-min-max-use-initializer-list
   <clang-tidy/checks/modernize/min-max-use-initializer-list>` check.
 
