@@ -85,6 +85,7 @@ struct EnumMacro {
 
   Token Name;
   const MacroDirective *Directive;
+  SmallVector<SourceRange> Expansions;
 };
 
 using MacroList = SmallVector<EnumMacro>;
@@ -176,6 +177,9 @@ public:
   void PragmaDirective(SourceLocation Loc,
                        PragmaIntroducerKind Introducer) override;
 
+  void MacroExpands(const Token &MacroNameTok, const MacroDefinition &MD,
+                    SourceRange Range, const MacroArgs *Args) override;
+
   // After we've seen everything, issue warnings and fix-its.
   void EndOfMainFile() override;
 
@@ -214,6 +218,7 @@ private:
   void fixEnumMacro(const MacroList &MacroList) const;
   bool isInitializer(ArrayRef<Token> MacroTokens);
 
+private:
   MacroToEnumCheck *Check;
   const LangOptions &LangOpts;
   const SourceManager &SM;
@@ -423,6 +428,24 @@ void MacroToEnumCallbacks::PragmaDirective(SourceLocation Loc,
 
   if (textEquals("once", Text))
     CurrentFile->GuardScanner = IncludeGuard::IfGuard;
+}
+
+void MacroToEnumCallbacks::MacroExpands(const Token &MacroNameTok,
+                                        const MacroDefinition &MD,
+                                        SourceRange Range,
+                                        const MacroArgs *Args) {
+  // Ignore function-like macro expansions.
+  if (Args != nullptr)
+    return;
+
+  for (auto &EnumList : Enums) {
+    for (EnumMacro &Enum : EnumList) {
+      if (getTokenName(Enum.Name) == getTokenName(MacroNameTok)) {
+        Enum.Expansions.push_back(Range);
+        return;
+      }
+    }
+  }
 }
 
 void MacroToEnumCallbacks::invalidateExpressionNames() {
