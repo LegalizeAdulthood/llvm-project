@@ -10,6 +10,7 @@
 #include "IntegralLiteralExpressionMatcher.h"
 
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Lex/Preprocessor.h"
 #include "llvm/ADT/STLExtras.h"
@@ -560,6 +561,21 @@ static bool empty(SourceRange Range) {
   return Range.getBegin() == Range.getEnd();
 }
 
+class MacroVisitor : public RecursiveASTVisitor<MacroVisitor> {
+public:
+  MacroVisitor(ASTContext &Context) : Context(Context) {}
+
+  bool traverse() { return TraverseAST(Context); }
+
+  bool VisitExpr(Expr *E) {
+    E->getBeginLoc(), E->getEndLoc();
+    return RecursiveASTVisitor<MacroVisitor>::VisitExpr(E);
+  }
+
+private:
+  ASTContext &Context;
+};
+
 void MacroToEnumCheck::check(
     const ast_matchers::MatchFinder::MatchResult &Result) {
   auto *TLDecl = Result.Nodes.getNodeAs<Decl>("top");
@@ -575,6 +591,8 @@ void MacroToEnumCheck::check(
 
   if (isValid(Range) && !empty(Range))
     PPCallback->invalidateRange(Range);
+
+  MacroVisitor(*Result.Context).traverse();
 }
 
 } // namespace clang::tidy::modernize
