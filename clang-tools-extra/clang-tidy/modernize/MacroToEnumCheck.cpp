@@ -187,6 +187,8 @@ public:
 
   void invalidateRange(SourceRange Range);
 
+  void invalidateExpansionRange(SourceRange Range);
+
 private:
   void newEnum() {
     if (Enums.empty() || !Enums.back().empty())
@@ -482,6 +484,19 @@ void MacroToEnumCallbacks::invalidateRange(SourceRange Range) {
   });
 }
 
+void MacroToEnumCallbacks::invalidateExpansionRange(SourceRange Range) {
+  for (auto &EnumList : Enums) {
+    for (EnumMacro &Enum : EnumList) {
+      llvm::erase_value(Enum.Expansions, Range);
+      //auto Split = partition(Enum.Expansions, [Range](SourceRange Expansion) {
+      //  return Range != Expansion;
+      //  //return !Range.fullyContains(Expansion);
+      //});
+      //Enum.Expansions.erase(Split, Enum.Expansions.end());
+    }
+  }
+}
+
 void MacroToEnumCallbacks::issueDiagnostics() {
   for (const MacroList &MacroList : Enums) {
     if (MacroList.empty())
@@ -563,16 +578,18 @@ static bool empty(SourceRange Range) {
 
 class MacroVisitor : public RecursiveASTVisitor<MacroVisitor> {
 public:
-  MacroVisitor(ASTContext &Context) : Context(Context) {}
+  MacroVisitor(MacroToEnumCallbacks *PPCallback, ASTContext &Context)
+      : PPCallback(PPCallback), Context(Context) {}
 
   bool traverse() { return TraverseAST(Context); }
 
   bool VisitExpr(Expr *E) {
-    E->getBeginLoc(), E->getEndLoc();
+    PPCallback->invalidateExpansionRange(E->getSourceRange());
     return RecursiveASTVisitor<MacroVisitor>::VisitExpr(E);
   }
 
 private:
+  MacroToEnumCallbacks *PPCallback;
   ASTContext &Context;
 };
 
@@ -592,7 +609,7 @@ void MacroToEnumCheck::check(
   if (isValid(Range) && !empty(Range))
     PPCallback->invalidateRange(Range);
 
-  MacroVisitor(*Result.Context).traverse();
+  MacroVisitor(PPCallback, *Result.Context).traverse();
 }
 
 } // namespace clang::tidy::modernize
