@@ -21,28 +21,38 @@ namespace clang {
 namespace tidy {
 namespace bugprone {
 
+static StringRef getTokenName(const Token &Tok) {
+  return Tok.is(tok::raw_identifier) ? Tok.getRawIdentifier()
+                                     : Tok.getIdentifierInfo()->getName();
+}
+
 namespace {
 
-struct ConditionMacro {
-  ConditionMacro(Token Name, const MacroDirective *MD,
-                 SourceLocation DefinedLoc, bool DefinedOnly)
-      : Name(Name), MD(MD), DefinedLoc(DefinedLoc), DefinedOnly(DefinedOnly) {}
-
-  Token Name;
-  const MacroDirective *MD;
-  SourceLocation DefinedLoc;
-  bool DefinedOnly;
-  bool DefinedChecked{false};
-  std::vector<SourceLocation> DefinedCheckedLocs;
-  bool ValueUsed{false};
-  std::vector<SourceLocation> ValueUsedLocs;
+enum class MacroState {
+  Undefined,
+  DefinedEmpty, // Defined with no value
+  DefinedValue, // Defined with a value
+  TestedDefined,
+  TestedValue,
+  If,
+  IfDef,
+  Else,
+  ElIf,
+  ElIfDef,
+  EndIf
 };
 
-using MacroReferenceList = std::vector<const ConditionMacro *>;
+struct MacroUsage {
+  MacroState State;
+  SourceRange Range;
+};
 
-struct MacroReferences {
-  MacroReferenceList Define;
-  MacroReferenceList Value;
+struct ConditionMacro {
+  ConditionMacro(Token Name, MacroState State, SourceRange Range)
+      : Name(getTokenName(Name)), States(1, {State, Range}) {}
+
+  std::string Name;
+  std::vector<MacroUsage> States;
 };
 
 class MacroConditionCallbacks : public PPCallbacks {
@@ -55,15 +65,17 @@ public:
                     const MacroDirective *MD) override;
   void Defined(const Token &MacroNameTok, const MacroDefinition &MD,
                SourceRange Range) override;
+  void MacroUndefined(const Token &MacroNameTok, const MacroDefinition &MD,
+                      const MacroDirective *Undef) override;
 
   void If(SourceLocation Loc, SourceRange ConditionRange,
           ConditionValueKind ConditionValue) override;
-  void Elif(SourceLocation Loc, SourceRange ConditionRange,
-            ConditionValueKind ConditionValue, SourceLocation IfLoc) override;
   void Ifdef(SourceLocation Loc, const Token &MacroNameTok,
              const MacroDefinition &MD) override;
   void Ifndef(SourceLocation Loc, const Token &MacroNameTok,
               const MacroDefinition &MD) override;
+  void Elif(SourceLocation Loc, SourceRange ConditionRange,
+            ConditionValueKind ConditionValue, SourceLocation IfLoc) override;
   void Elifdef(SourceLocation Loc, const Token &MacroNameTok,
                const MacroDefinition &MD) override;
   void Elifdef(SourceLocation Loc, SourceRange ConditionRange,
@@ -77,18 +89,16 @@ public:
   void EndOfMainFile() override;
 
 private:
-  MacroReferences
-  macrosReferencedInCondition(const SourceLocation &Loc,
-                              const SourceRange &ConditionRange);
-  MacroReferences namesReferenced(SourceLocation Loc,
-                                  const Token &MacroNameTok);
-  void checkConditions();
-
+  void pushState(MacroState State, SourceRange Range);
+  void pushStateContainingRange(MacroState State, SourceRange Range);
+  void addNewReferencedMacro(Token Tok, MacroState State, SourceRange Range);
+  void nameReferenced(Token Tok, MacroState State, SourceRange Range);
+  void macrosReferencedInCondition(const SourceRange &ConditionRange);
   SmallVector<ConditionMacro> Macros;
+  std::vector<MacroUsage> ActiveCondition;
   MacroConditionCheck *Check;
   const SourceManager &SM;
   const LangOptions &LangOpts;
-  std::vector<MacroReferences> Conditions;
 };
 
 void MacroConditionCallbacks::MacroDefined(const Token &MacroNameTok,
@@ -102,26 +112,227 @@ void MacroConditionCallbacks::MacroDefined(const Token &MacroNameTok,
     return;
 
   bool DefineOnly = Info->tokens().empty();
-  Macros.emplace_back(MacroNameTok, MD, Loc, DefineOnly);
+  MacroState State =
+      DefineOnly ? MacroState::DefinedEmpty : MacroState::DefinedValue;
+  ConditionMacro *It = llvm::find_if(
+      Macros, [Name = getTokenName(MacroNameTok)](const ConditionMacro &Macro) {
+        return Macro.Name == Name;
+      });
+  if (It == Macros.end())
+    addNewReferencedMacro(MacroNameTok, State, Loc);
+  else
+    It->States.push_back({State, Loc});
 }
 
 void MacroConditionCallbacks::Defined(const Token &MacroNameTok,
                                       const MacroDefinition &MD,
                                       SourceRange Range) {
-  auto It = llvm::find_if(
-      Macros, [Name = MacroNameTok.getIdentifierInfo()->getName()](
-                  const ConditionMacro &Macro) {
-        return Macro.Name.getIdentifierInfo()->getName() == Name;
+  ConditionMacro *It = llvm::find_if(
+      Macros, [Name = getTokenName(MacroNameTok)](const ConditionMacro &Macro) {
+        return Macro.Name == Name;
       });
-  if (It != Macros.end()) {
-    It->DefinedChecked = true;
-    It->DefinedCheckedLocs.push_back(Range.getBegin());
+  if (It == Macros.end())
+    addNewReferencedMacro(MacroNameTok, MacroState::TestedDefined, Range);
+  else
+    It->States.push_back({MacroState::TestedDefined, Range});
+}
+
+void MacroConditionCallbacks::MacroUndefined(const Token &MacroNameTok,
+                                             const MacroDefinition &MD,
+                                             const MacroDirective *Undef) {
+  ConditionMacro *It = llvm::find_if(
+      Macros, [Name = getTokenName(MacroNameTok)](const ConditionMacro &Macro) {
+        return Macro.Name == Name;
+      });
+  if (It == Macros.end())
+    addNewReferencedMacro(MacroNameTok, MacroState::TestedDefined,
+                          Undef->getLocation());
+  else
+    It->States.push_back({MacroState::Undefined, Undef->getLocation()});
+}
+
+void MacroConditionCallbacks::If(SourceLocation Loc, SourceRange ConditionRange,
+                                 ConditionValueKind ConditionValue) {
+  pushStateContainingRange(MacroState::If, ConditionRange);
+  macrosReferencedInCondition(ConditionRange);
+}
+
+void MacroConditionCallbacks::Ifdef(SourceLocation Loc,
+                                    const Token &MacroNameTok,
+                                    const MacroDefinition &MD) {
+  pushState(MacroState::IfDef, Loc);
+  nameReferenced(MacroNameTok, MacroState::TestedDefined, Loc);
+}
+
+void MacroConditionCallbacks::Ifndef(SourceLocation Loc,
+                                     const Token &MacroNameTok,
+                                     const MacroDefinition &MD) {
+  pushState(MacroState::IfDef, Loc);
+  nameReferenced(MacroNameTok, MacroState::TestedDefined, Loc);
+}
+
+void MacroConditionCallbacks::Elifdef(SourceLocation Loc,
+                                      const Token &MacroNameTok,
+                                      const MacroDefinition &MD) {
+  pushState(MacroState::ElIfDef, Loc);
+  nameReferenced(MacroNameTok, MacroState::TestedDefined, Loc);
+}
+
+void MacroConditionCallbacks::Elifdef(SourceLocation Loc,
+                                      SourceRange ConditionRange,
+                                      SourceLocation IfLoc) {
+  pushState(MacroState::ElIfDef, Loc);
+  macrosReferencedInCondition(ConditionRange);
+}
+
+void MacroConditionCallbacks::Elifndef(SourceLocation Loc,
+                                       const Token &MacroNameTok,
+                                       const MacroDefinition &MD) {
+  pushState(MacroState::ElIfDef, Loc);
+  nameReferenced(MacroNameTok, MacroState::TestedDefined, Loc);
+}
+
+void MacroConditionCallbacks::Elifndef(SourceLocation Loc,
+                                       SourceRange ConditionRange,
+                                       SourceLocation IfLoc) {
+  pushState(MacroState::ElIfDef, Loc);
+  macrosReferencedInCondition(ConditionRange);
+}
+
+void MacroConditionCallbacks::Elif(SourceLocation Loc,
+                                   SourceRange ConditionRange,
+                                   ConditionValueKind ConditionValue,
+                                   SourceLocation IfLoc) {
+  pushStateContainingRange(MacroState::ElIf, ConditionRange);
+  macrosReferencedInCondition(ConditionRange);
+}
+
+void MacroConditionCallbacks::Else(SourceLocation Loc,
+                                   SourceLocation /*IfLoc*/) {
+  pushState(MacroState::Else, Loc);
+}
+
+void MacroConditionCallbacks::Endif(SourceLocation Loc,
+                                    SourceLocation /*IfLoc*/) {
+  // Drop this condition from the active condition.
+  auto StartsCond = [](const MacroUsage &Usage) {
+    return Usage.State == MacroState::If || Usage.State == MacroState::IfDef;
+  };
+  auto Pos = std::prev(
+      llvm::find_if(llvm::reverse(ActiveCondition), StartsCond).base());
+  ActiveCondition.erase(Pos, ActiveCondition.end());
+
+  for (ConditionMacro &Macro : Macros) {
+    auto PrevCond = [](const MacroUsage &Usage) {
+      return Usage.State == MacroState::If ||
+             Usage.State == MacroState::IfDef ||
+             Usage.State == MacroState::Else ||
+             Usage.State == MacroState::ElIf ||
+             Usage.State == MacroState::ElIfDef;
+    };
+    // Drop any conditional directives that didn't mention this macro.
+    if (!Macro.States.empty() && PrevCond(Macro.States.back())) {
+      auto Pos =
+          llvm::find_if_not(llvm::reverse(Macro.States), PrevCond).base();
+      if (Pos->State == MacroState::If || Pos->State == MacroState::IfDef)
+        Macro.States.erase(Pos, Macro.States.end());
+      else
+        Macro.States.push_back({MacroState::EndIf, Loc});
+    } else
+      Macro.States.push_back({MacroState::EndIf, Loc});
   }
 }
 
-MacroReferences
-MacroConditionCallbacks::macrosReferencedInCondition(
-    const SourceLocation &Loc, const SourceRange &ConditionRange) {
+void MacroConditionCallbacks::EndOfMainFile() {
+  for (ConditionMacro &Macro : Macros) {
+    bool HasValue = false;
+    bool IsDefined = false;
+    for (const MacroUsage &Usage : Macro.States) {
+      switch (Usage.State) {
+      case MacroState::Undefined:
+        IsDefined = false;
+        HasValue = false;
+        break;
+      case MacroState::DefinedEmpty:
+        HasValue = false;
+        IsDefined = true;
+        break;
+      case MacroState::DefinedValue:
+        HasValue = true;
+        IsDefined = true;
+        break;
+      case MacroState::TestedDefined:
+        if (HasValue)
+          Check->diag(
+              Usage.Range.getBegin(),
+              "Macro '%0' defined with a value and checked for definition")
+              << Macro.Name;
+        break;
+      case MacroState::TestedValue:
+        if (!IsDefined)
+          Check->diag(Usage.Range.getBegin(),
+                      "Macro '%0' value was tested without being defined.")
+              << Macro.Name;
+        break;
+
+      case MacroState::If:
+      case MacroState::IfDef:
+      case MacroState::ElIf:
+      case MacroState::ElIfDef:
+      case MacroState::Else:
+      case MacroState::EndIf:
+        break;
+      }
+    }
+  }
+}
+
+void MacroConditionCallbacks::pushState(MacroState State, SourceRange Range) {
+  ActiveCondition.push_back({State, Range});
+  for (ConditionMacro &Macro : Macros)
+    Macro.States.push_back({State, Range});
+}
+
+void MacroConditionCallbacks::pushStateContainingRange(MacroState State,
+                                                       SourceRange Range) {
+  ActiveCondition.push_back({State, Range});
+  for (ConditionMacro &Macro : Macros) {
+    if (Macro.States.empty())
+      Macro.States.push_back({State, Range});
+    else {
+      auto Pos = llvm::find_if(llvm::reverse(Macro.States),
+                               [Range](const MacroUsage &Usage) {
+                                 return !Range.fullyContains(Usage.Range);
+                               })
+                     .base();
+      Macro.States.insert(Pos, {State, Range});
+    }
+  }
+}
+
+void MacroConditionCallbacks::addNewReferencedMacro(Token Tok, MacroState State,
+                                                    SourceRange Range) {
+  Macros.emplace_back(Tok, MacroState::Undefined, Range);
+  llvm::copy(ActiveCondition, std::back_inserter(Macros.back().States));
+  Macros.back().States.push_back({State, Range});
+}
+
+void MacroConditionCallbacks::nameReferenced(Token Tok, MacroState State,
+                                             SourceRange Range) {
+  StringRef Name = getTokenName(Tok);
+  ConditionMacro *It =
+      llvm::find_if(Macros, [Name](const ConditionMacro &Macro) {
+        return Macro.Name == Name;
+      });
+  if (It == Macros.end())
+    // Tested without being defined.
+    addNewReferencedMacro(Tok, State, Range);
+  else
+    It->States.push_back({State, Range});
+}
+
+void MacroConditionCallbacks::macrosReferencedInCondition(
+    const SourceRange &ConditionRange) {
   CharSourceRange CharRange = Lexer::makeFileCharRange(
       CharSourceRange::getTokenRange(ConditionRange), SM, LangOpts);
   std::string Text = Lexer::getSourceText(CharRange, SM, LangOpts).str();
@@ -130,7 +341,6 @@ MacroConditionCallbacks::macrosReferencedInCondition(
   Token Tok;
   bool InsideDefined = false;
   bool AtEnd;
-  MacroReferences Referenced;
   do {
     AtEnd = Lex.LexFromRawLexer(Tok);
     if (!Tok.is(tok::raw_identifier))
@@ -141,133 +351,10 @@ MacroConditionCallbacks::macrosReferencedInCondition(
       continue;
     }
 
-    StringRef Name = Tok.getRawIdentifier();
-    ConditionMacro *It =
-        llvm::find_if(Macros, [Name](const ConditionMacro &Macro) {
-          return Macro.Name.getIdentifierInfo()->getName() == Name;
-        });
-    if (It == Macros.end())
-      continue;
-
-    if (InsideDefined) {
-      InsideDefined = false;
-      It->DefinedChecked = true;
-      It->DefinedCheckedLocs.push_back(Loc);
-      Referenced.Define.push_back(It);
-    } else {
-      It->ValueUsed = true;
-      It->ValueUsedLocs.push_back(Loc);
-      Referenced.Value.push_back(It);
-    }
+    // Defined is handled through a callback.
+    if (!InsideDefined)
+      nameReferenced(Tok, MacroState::TestedValue, ConditionRange);
   } while (!AtEnd);
-  return Referenced;
-}
-
-void MacroConditionCallbacks::If(SourceLocation Loc, SourceRange ConditionRange,
-                                 ConditionValueKind ConditionValue) {
-  Conditions.push_back(macrosReferencedInCondition(Loc, ConditionRange));
-}
-
-MacroReferences
-MacroConditionCallbacks::namesReferenced(SourceLocation Loc,
-                                         const Token &MacroNameTok) {
-  StringRef Name = MacroNameTok.getIdentifierInfo()->getName();
-  auto It = llvm::find_if(Macros, [Name](const ConditionMacro &Macro) {
-    return Macro.Name.getIdentifierInfo()->getName() == Name;
-  });
-  MacroReferences Referenced;
-  if (It != Macros.end()) {
-    It->DefinedChecked = true;
-    It->DefinedCheckedLocs.push_back(Loc);
-    Referenced.Define.push_back(It);
-  }
-  return Referenced;
-}
-
-void MacroConditionCallbacks::checkConditions() {
-  // Macros tested for definition at this scope have to be tested for value at
-  // this scope.
-  for (const ConditionMacro *Macro : Conditions.back().Define) {
-    auto It = llvm::find(Conditions.back().Value, Macro);
-    if (It == Conditions.back().Value.end()) {
-      std::cerr << "Macro " << Macro->Name.getIdentifierInfo()->getName().str()
-                << " checked for define, but not value\n";
-    }
-  }
-}
-
-void MacroConditionCallbacks::Ifdef(SourceLocation Loc,
-                                    const Token &MacroNameTok,
-                                    const MacroDefinition &MD) {
-  Conditions.push_back(namesReferenced(Loc, MacroNameTok));
-}
-
-void MacroConditionCallbacks::Ifndef(SourceLocation Loc,
-                                     const Token &MacroNameTok,
-                                     const MacroDefinition &MD) {
-  Conditions.push_back(namesReferenced(Loc, MacroNameTok));
-}
-
-void MacroConditionCallbacks::Elifdef(SourceLocation Loc,
-                                      const Token &MacroNameTok,
-                                      const MacroDefinition &MD) {
-  checkConditions();
-  Conditions.back() = namesReferenced(Loc, MacroNameTok);
-}
-
-void MacroConditionCallbacks::Elifndef(SourceLocation Loc,
-                                       const Token &MacroNameTok,
-                                       const MacroDefinition &MD) {
-  checkConditions();
-  Conditions.back() = namesReferenced(Loc, MacroNameTok);
-}
-
-void MacroConditionCallbacks::Elif(SourceLocation Loc,
-                                   SourceRange ConditionRange,
-                                   ConditionValueKind ConditionValue,
-                                   SourceLocation IfLoc) {
-  checkConditions();
-  Conditions.back() = macrosReferencedInCondition(Loc, ConditionRange);
-}
-
-void MacroConditionCallbacks::Elifdef(SourceLocation Loc,
-                                      SourceRange ConditionRange,
-                                      SourceLocation IfLoc) {
-  checkConditions();
-  Conditions.back() = macrosReferencedInCondition(Loc, ConditionRange);
-}
-
-void MacroConditionCallbacks::Elifndef(SourceLocation Loc,
-                                       SourceRange ConditionRange,
-                                       SourceLocation IfLoc) {
-  checkConditions();
-  Conditions.back() = macrosReferencedInCondition(Loc, ConditionRange);
-}
-
-void MacroConditionCallbacks::Else(SourceLocation Loc, SourceLocation IfLoc) {
-  checkConditions();
-  Conditions.back() = MacroReferences{};
-}
-
-void MacroConditionCallbacks::Endif(SourceLocation Loc, SourceLocation IfLoc) {
-  checkConditions();
-  Conditions.pop_back();
-}
-
-void MacroConditionCallbacks::EndOfMainFile() {
-  StringRef DefinedMsg =
-      "Macro '%0' defined here with a value and checked for definition";
-  StringRef CheckedMsg =
-      "Macro '%0' defined with a value and checked here for definition";
-  for (ConditionMacro &Macro : Macros) {
-    if (!Macro.DefinedOnly && Macro.DefinedChecked) {
-      StringRef Name = Macro.Name.getIdentifierInfo()->getName();
-      Check->diag(Macro.MD->getMacroInfo()->getDefinitionLoc(), DefinedMsg)
-          << Name;
-      for (SourceLocation Loc : Macro.DefinedCheckedLocs)
-        Check->diag(Loc, CheckedMsg) << Name;
-    }
-  }
 }
 
 } // namespace

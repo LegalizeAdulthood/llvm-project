@@ -12,6 +12,12 @@ void f()
 }
 #endif
 
+#if 0
+#elif OTHER_MACRO
+#elifdef OTHER_MACRO2
+#else
+#endif
+
 #if !defined(USE_FOO)
 // CHECK-MESSAGES: :[[@LINE-1]]:6: warning: Macro 'USE_FOO' defined with a value and checked here for definition
 void f2()
