@@ -231,14 +231,14 @@ void MacroConditionCallbacks::Endif(SourceLocation Loc,
              Usage.State == MacroState::ElIfDef;
     };
     // Drop any conditional directives that didn't mention this macro.
-    if (!Macro.States.empty() && PrevCond(Macro.States.back())) {
-      auto Pos =
-          llvm::find_if_not(llvm::reverse(Macro.States), PrevCond).base();
-      if (Pos->State == MacroState::If || Pos->State == MacroState::IfDef)
-        Macro.States.erase(Pos, Macro.States.end());
-      else
-        Macro.States.push_back({MacroState::EndIf, Loc});
-    } else
+    //if (!Macro.States.empty() && PrevCond(Macro.States.back())) {
+    //  auto Pos =
+    //      llvm::find_if_not(llvm::reverse(Macro.States), PrevCond).base();
+    //  if (Pos->State == MacroState::If || Pos->State == MacroState::IfDef)
+    //    Macro.States.erase(Pos, Macro.States.end());
+    //  else
+    //    Macro.States.push_back({MacroState::EndIf, Loc});
+    //} else
       Macro.States.push_back({MacroState::EndIf, Loc});
   }
 }
@@ -247,43 +247,80 @@ void MacroConditionCallbacks::EndOfMainFile() {
   for (ConditionMacro &Macro : Macros) {
     bool HasValue = false;
     bool IsDefined = false;
+    bool TestedValue = false;
+    bool TestedDefined = false;
+    bool HasValueTestedDefined = false;
+    SourceLocation HasValueTestedDefinedLoc;
+    bool IsDefinedTestedValue = false;
+    std::vector<bool> TestedValueStack;
+    std::vector<bool> TestedDefinedStack;
     for (const MacroUsage &Usage : Macro.States) {
       switch (Usage.State) {
       case MacroState::Undefined:
         IsDefined = false;
         HasValue = false;
         break;
+
       case MacroState::DefinedEmpty:
         HasValue = false;
         IsDefined = true;
         break;
+
       case MacroState::DefinedValue:
         HasValue = true;
         IsDefined = true;
         break;
+
       case MacroState::TestedDefined:
-        if (HasValue)
-          Check->diag(
-              Usage.Range.getBegin(),
-              "Macro '%0' defined with a value and checked for definition")
-              << Macro.Name;
+        if (HasValue && !TestedDefined) {
+          HasValueTestedDefined = true;
+          HasValueTestedDefinedLoc = Usage.Range.getBegin();
+        }
+        TestedDefined = true;
         break;
+
       case MacroState::TestedValue:
         if (!IsDefined)
           Check->diag(Usage.Range.getBegin(),
                       "Macro '%0' value was tested without being defined.")
               << Macro.Name;
+        TestedValue = true;
         break;
 
       case MacroState::If:
+        TestedValueStack.push_back(TestedValue);
+        TestedDefinedStack.push_back(TestedDefined);
+        break;
+
       case MacroState::IfDef:
+        TestedValueStack.push_back(TestedValue);
+        TestedDefinedStack.push_back(TestedDefined);
+        TestedDefined = true;
+        break;
+
       case MacroState::ElIf:
-      case MacroState::ElIfDef:
       case MacroState::Else:
+        TestedValue = false;
+        TestedDefined = false;
+        break;
+
+      case MacroState::ElIfDef:
+        TestedDefined = true;
+        break;
+
       case MacroState::EndIf:
+        TestedValue = TestedValueStack.back();
+        TestedValueStack.pop_back();
+        TestedDefined = TestedDefinedStack.back();
+        TestedDefinedStack.pop_back();
         break;
       }
     }
+
+    if (HasValueTestedDefined)
+      Check->diag(HasValueTestedDefinedLoc,
+                  "Macro '%0' defined with a value and checked for definition")
+          << Macro.Name;
   }
 }
 

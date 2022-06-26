@@ -14,6 +14,7 @@ void f()
 
 #if 0
 #elif OTHER_MACRO
+// CHECK-MESSAGES: :[[@LINE-1]]:7: warning: Undefined macro 'OTHER_MACRO' checked here for value
 #elifdef OTHER_MACRO2
 #else
 #endif
