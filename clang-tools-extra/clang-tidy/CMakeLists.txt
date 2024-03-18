@@ -49,35 +49,8 @@ if(CLANG_TIDY_ENABLE_STATIC_ANALYZER)
   )
 endif()
 
-# Checks.
-# If you add a check, also add it to ClangTidyForceLinker.h in this directory.
-add_subdirectory(android)
-add_subdirectory(abseil)
-add_subdirectory(altera)
-add_subdirectory(boost)
-add_subdirectory(bugprone)
-add_subdirectory(cert)
-add_subdirectory(concurrency)
-add_subdirectory(cppcoreguidelines)
-add_subdirectory(darwin)
-add_subdirectory(fuchsia)
-add_subdirectory(google)
-add_subdirectory(hicpp)
-add_subdirectory(linuxkernel)
-add_subdirectory(llvm)
-add_subdirectory(llvmlibc)
-add_subdirectory(misc)
-add_subdirectory(modernize)
-if(CLANG_TIDY_ENABLE_STATIC_ANALYZER)
-  add_subdirectory(mpi)
-endif()
-add_subdirectory(objc)
-add_subdirectory(openmp)
-add_subdirectory(performance)
-add_subdirectory(portability)
-add_subdirectory(readability)
-add_subdirectory(zircon)
-set(ALL_CLANG_TIDY_CHECKS
+set(CLANG_TIDY_ENABLE_MODULES "all" CACHE STRING "List of clang-tidy check modules to enable; 'all' builds all available check modules.")
+set(CLANG_TIDY_ALL_MODULES
   clangTidyAndroidModule
   clangTidyAbseilModule
   clangTidyAlteraModule
@@ -102,10 +75,86 @@ set(ALL_CLANG_TIDY_CHECKS
   clangTidyReadabilityModule
   clangTidyZirconModule
   )
+# build associative map from lower case module short name to actual module name
+set(short_module_names "")
+foreach(module ${CLANG_TIDY_ALL_MODULES})
+  string(REGEX REPLACE "clangTidy(.*)Module" "\\1" module_name ${module})
+  string(TOLOWER "${module_name}" short_name)
+  set(clangTidy${short_name}Target ${module})
+  set(clangTidy${short_name}Module "${module_name}Module")
+  list(APPEND short_module_names "${short_name}")
+endforeach()
+string(TOLOWER "${CLANG_TIDY_ENABLE_MODULES}" CLANG_TIDY_ENABLE_MODULES)
+set(module_anchors "")
+if("all" IN_LIST CLANG_TIDY_ENABLE_MODULES)
+  set(ALL_CLANG_TIDY_CHECKS ${CLANG_TIDY_ALL_MODULES})
+  set(module_anchors ${short_module_names})
+else()
+  foreach(short_name ${CLANG_TIDY_ENABLE_MODULES})
+    if(${short_name} IN_LIST short_module_names)
+      list(APPEND ALL_CLANG_TIDY_CHECKS ${clangTidy${short_name}Target})
+      list(APPEND module_anchors ${short_name})
+    endif()
+  endforeach()
+endif()
 if(CLANG_TIDY_ENABLE_STATIC_ANALYZER)
   list(APPEND ALL_CLANG_TIDY_CHECKS clangTidyMPIModule)
 endif()
-set(ALL_CLANG_TIDY_CHECKS ${ALL_CLANG_TIDY_CHECKS} PARENT_SCOPE)
+set(clang_tidy_module_anchor_snippet [=[
+// This anchor is used to force the linker to link the @module_name@.
+extern volatile int @module_name@AnchorSource;
+static int LLVM_ATTRIBUTE_UNUSED @module_name@AnchorDestination =
+    @module_name@AnchorSource;
+
+]=])
+set(module_anchor_header "")
+function(add_check_module short_name)
+  if("all" IN_LIST CLANG_TIDY_ENABLE_MODULES OR "${short_name}" IN_LIST CLANG_TIDY_ENABLE_MODULES)
+    if(NOT "all" STREQUAL CLANG_TIDY_ENABLE_MODULES)
+      message(STATUS "${clangTidy${short_name}Target} is enabled")
+    endif()
+    add_subdirectory(${short_name})
+    set(module_name ${clangTidy${short_name}Module})
+    string(CONFIGURE "${clang_tidy_module_anchor_snippet}" anchor)
+    string(APPEND module_anchor_header "${anchor}")
+    set(module_anchor_header "${module_anchor_header}" PARENT_SCOPE)
+  else()
+    if(NOT "all" STREQUAL CLANG_TIDY_ENABLE_MODULES)
+      message(STATUS "${clangTidy${short_name}Target} is NOT enabled")
+    endif()
+  endif()
+endfunction()
+
+# Checks.
+# If you add a check, also add it to ClangTidyForceLinker.h in this directory.
+add_check_module(android)
+add_check_module(abseil)
+add_check_module(altera)
+add_check_module(boost)
+add_check_module(bugprone)
+add_check_module(cert)
+add_check_module(concurrency)
+add_check_module(cppcoreguidelines)
+add_check_module(darwin)
+add_check_module(fuchsia)
+add_check_module(google)
+add_check_module(hicpp)
+add_check_module(linuxkernel)
+add_check_module(llvm)
+add_check_module(llvmlibc)
+add_check_module(misc)
+add_check_module(modernize)
+if(CLANG_TIDY_ENABLE_STATIC_ANALYZER)
+  add_subdirectory(mpi)
+endif()
+add_check_module(objc)
+add_check_module(openmp)
+add_check_module(performance)
+add_check_module(portability)
+add_check_module(readability)
+add_check_module(zircon)
+
+configure_file(ClangTidyForceEnabledLinker.h.in ClangTidyForceEnabledLinker.h @ONLY)
 
 # Other subtargets. These may reference ALL_CLANG_TIDY_CHECKS
 # and must be below its definition.

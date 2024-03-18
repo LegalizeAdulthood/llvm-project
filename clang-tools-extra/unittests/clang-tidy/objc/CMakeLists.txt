@@ -1,0 +1,1 @@
+clang_tidy_add_module_test_lib(clangTidyObjCModule ObjCModuleTest.cpp)
