@@ -1,3 +1,5 @@
+include(GoogleTest)
+
 set(LLVM_LINK_COMPONENTS
   support
   AllTargetsInfos
@@ -203,3 +205,7 @@ endif ()
 configure_lit_site_cfg(
   ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py.in
   ${CMAKE_CURRENT_BINARY_DIR}/lit.site.cfg.py)
+
+gtest_discover_tests(ClangdTests
+    PROPERTIES LABELS "clangd"
+)
