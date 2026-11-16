@@ -319,6 +319,11 @@ infrastructure are described first, followed by tool-specific sections.
   nested expressions involving different macros or a mix of macro and
   non-macro operands.
 
+- Improved {doc}`modernize-loop-convert
+  <clang-tidy/checks/modernize/loop-convert>` by adding the
+  {option}`UseAuto` option to use explicit loop variable types instead of
+  `auto`.
+
 - Fixed false positive in {doc}`modernize-make-unique
   <clang-tidy/checks/modernize/make-unique>` in presence of private, protected
   or deleted destructor.
