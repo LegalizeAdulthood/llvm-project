@@ -137,6 +137,18 @@ lives.
 
 ## Options
 
+```{option} UseAuto
+When `true`, use `auto` for non-fundamental loop variable types.
+When `false`, use explicit types, preserving element type aliases from
+the container declaration where possible. For example, a container
+declared as `std::vector<std::string>` uses `std::string`, whereas
+`std::vector<std::basic_string<char>>` uses `std::basic_string<char>`.
+Reference and const qualification are selected in the same way for both
+settings. Loops requiring an unnamed or inaccessible type, or a
+structured binding, are left unchanged when this option is `false`.
+Default is `true`.
+```
+
 ```{option} UseCxx20ReverseRanges
 When set to true convert loops when in C++20 or later mode using
 `std::views::reverse`.

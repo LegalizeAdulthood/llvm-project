@@ -8,6 +8,7 @@
 
 #include "LoopConvertCheck.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/PrettyPrinter.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/LangOptions.h"
@@ -589,6 +590,7 @@ static bool requiresLeadingSpace(const SourceManager &SourceMgr,
 
 LoopConvertCheck::LoopConvertCheck(StringRef Name, ClangTidyContext *Context)
     : ClangTidyCheck(Name, Context), TUInfo(new TUTrackingInfo),
+      UseAuto(Options.get("UseAuto", true)),
       MaxCopySize(Options.get("MaxCopySize", 16ULL)),
       MinConfidence(Options.get("MinConfidence", Confidence::CL_Reasonable)),
       NamingStyle(Options.get("NamingStyle", VariableNamer::NS_CamelCase)),
@@ -612,6 +614,7 @@ LoopConvertCheck::LoopConvertCheck(StringRef Name, ClangTidyContext *Context)
 }
 
 void LoopConvertCheck::storeOptions(ClangTidyOptions::OptionMap &Opts) {
+  Options.store(Opts, "UseAuto", UseAuto);
   Options.store(Opts, "MaxCopySize", MaxCopySize);
   Options.store(Opts, "MinConfidence", MinConfidence);
   Options.store(Opts, "NamingStyle", NamingStyle);
@@ -659,6 +662,109 @@ void LoopConvertCheck::getAliasRange(SourceManager &SM, SourceRange &Range) {
       SourceRange(Range.getBegin(), Range.getEnd().getLocWithOffset(Offset));
 }
 
+/// Find the spelling of an element type in the container's declared type.
+/// Inspect the sugared template arguments, not the shared specialization: two
+/// containers of the same type may spell their element types differently.
+static QualType findTypeAsWritten(ASTContext &Context, QualType ContainerType,
+                                  QualType ElemType) {
+  if (!ContainerType->getContainedAutoType() &&
+      ASTContext::hasSameUnqualifiedType(ContainerType, ElemType))
+    return Context.getQualifiedType(ContainerType.getUnqualifiedType(),
+                                    ElemType.getQualifiers());
+
+  if (const auto *Array = Context.getAsArrayType(ContainerType))
+    return findTypeAsWritten(Context, Array->getElementType(), ElemType);
+  if (ContainerType->isPointerType() || ContainerType->isReferenceType())
+    return findTypeAsWritten(Context, ContainerType->getPointeeType(),
+                             ElemType);
+  if (const auto *Specialization =
+          ContainerType->getAs<TemplateSpecializationType>()) {
+    QualType Result;
+    for (const TemplateArgument &Arg : Specialization->template_arguments()) {
+      if (Arg.getKind() != TemplateArgument::Type)
+        continue;
+      if (QualType Written =
+              findTypeAsWritten(Context, Arg.getAsType(), ElemType);
+          !Written.isNull()) {
+        // Different arguments may give the same type different names. Do not
+        // arbitrarily choose one spelling for all occurrences in the element.
+        if (!Result.isNull() && Result != Written)
+          return {};
+        Result = Written;
+      }
+    }
+    return Result;
+  }
+  return {};
+}
+
+/// Also recover spellings inside a composite element type, such as the pair
+/// returned by a map iterator or a pointer to a declared element type.
+static QualType getTypeAsWritten(ASTContext &Context, QualType ContainerType,
+                                 QualType ElemType) {
+  if (QualType Written = findTypeAsWritten(Context, ContainerType, ElemType);
+      !Written.isNull())
+    return Written;
+
+  ElemType = ElemType.getDesugaredType(Context);
+  QualType Result = ElemType;
+  if (const auto *Pointer = ElemType->getAs<PointerType>()) {
+    Result = Context.getPointerType(
+        getTypeAsWritten(Context, ContainerType, Pointer->getPointeeType()));
+  } else if (const auto *Record =
+                 dyn_cast_or_null<ClassTemplateSpecializationDecl>(
+                     ElemType->getAsCXXRecordDecl())) {
+    SmallVector<TemplateArgument> Args;
+    for (const TemplateArgument &Arg : Record->getTemplateArgs().asArray())
+      if (Arg.getKind() == TemplateArgument::Type)
+        Args.emplace_back(
+            getTypeAsWritten(Context, ContainerType, Arg.getAsType()));
+      else
+        Args.push_back(Arg);
+    Result = Context.getTemplateSpecializationType(
+        ElaboratedTypeKeyword::None,
+        TemplateName(Record->getSpecializedTemplate()), Args,
+        Record->getTemplateArgs().asArray(), ElemType.getUnqualifiedType());
+  }
+  return Context.getQualifiedType(Result, ElemType.getQualifiers());
+}
+
+static bool canSpellType(QualType Type) {
+  if (Type.isNull() || Type->isDependentType() || Type->getContainedAutoType())
+    return false;
+  const NamedDecl *TypeDecl = nullptr;
+  if (const auto *Alias = dyn_cast<TypedefType>(Type)) {
+    TypeDecl = Alias->getDecl();
+  } else if (const auto *Tag = Type->getAsTagDecl()) {
+    if (!Tag->getIdentifier())
+      return false;
+    TypeDecl = Tag;
+  }
+  // Conservatively avoid names whose accessibility depends on the loop's
+  // context, including public names inside private classes.
+  for (const Decl *D = TypeDecl; D;) {
+    if (const auto *Name = dyn_cast<NamedDecl>(D);
+        Name &&
+        (Name->getAccess() == AS_private || Name->getAccess() == AS_protected))
+      return false;
+    const DeclContext *DC = D->getDeclContext();
+    D = DC ? Decl::castFromDeclContext(DC) : nullptr;
+  }
+  // A typedef can give an otherwise anonymous type a usable name.
+  if (isa<TypedefType>(Type))
+    return true;
+  if (const auto *Array = dyn_cast<ArrayType>(Type))
+    return canSpellType(Array->getElementType());
+  if (Type->isPointerType() || Type->isReferenceType())
+    return canSpellType(Type->getPointeeType());
+  if (const auto *Specialization = Type->getAs<TemplateSpecializationType>())
+    for (const TemplateArgument &Arg : Specialization->template_arguments())
+      if (Arg.getKind() == TemplateArgument::Type &&
+          !canSpellType(Arg.getAsType()))
+        return false;
+  return true;
+}
+
 /// Computes the changes needed to convert a given for loop, and
 /// applies them.
 void LoopConvertCheck::doConversion(
@@ -666,6 +772,11 @@ void LoopConvertCheck::doConversion(
     const ValueDecl *MaybeContainer, const UsageResult &Usages,
     const DeclStmt *AliasDecl, bool AliasUseRequired, bool AliasFromForInit,
     const ForStmt *Loop, RangeDescriptor Descriptor) {
+  // Structured bindings require auto, even when the element type is known.
+  if (!UseAuto &&
+      (!canSpellType(Descriptor.ElemType) ||
+       (AliasDecl && isa<DecompositionDecl>(AliasDecl->getSingleDecl()))))
+    return;
   std::string VarNameOrStructuredBinding;
   const bool VarNameFromAlias = (Usages.size() == 1) && AliasDecl;
   bool AliasVarIsRef = false;
@@ -700,6 +811,8 @@ void LoopConvertCheck::doConversion(
           !ASTContext::hasSameUnqualifiedType(AliasVarType,
                                               Descriptor.ElemType))
         Descriptor.ElemType = AliasVarType;
+      if (!UseAuto && !canSpellType(Descriptor.ElemType))
+        return;
     }
 
     // We keep along the entire DeclStmt to keep the correct range here.
@@ -785,10 +898,16 @@ void LoopConvertCheck::doConversion(
   // Now, we need to construct the new range expression.
   const SourceRange ParenRange(Loop->getLParenLoc(), Loop->getRParenLoc());
 
-  QualType Type = Context->getAutoDeductType();
-  if (!Descriptor.ElemType.isNull() && Descriptor.ElemType->isFundamentalType())
+  QualType Type;
+  if (UseAuto) {
+    Type = Context->getAutoDeductType();
+    if (!Descriptor.ElemType.isNull() &&
+        Descriptor.ElemType->isFundamentalType())
+      Type = Descriptor.ElemType.getUnqualifiedType();
+    Type = Type.getDesugaredType(*Context);
+  } else {
     Type = Descriptor.ElemType.getUnqualifiedType();
-  Type = Type.getDesugaredType(*Context);
+  }
 
   // If the new variable name is from the aliased variable, then the reference
   // type for the new variable should only be used if the aliased variable was
@@ -802,6 +921,9 @@ void LoopConvertCheck::doConversion(
   const bool UseCopy =
       CanCopy && ((VarNameFromAlias && !AliasVarIsRef) ||
                   (Descriptor.DerefByConstRef && IsCheapToCopy));
+
+  if (!UseAuto && !UseCopy)
+    Type = Context->getQualifiedType(Type, Descriptor.ElemType.getQualifiers());
 
   if (!UseCopy) {
     if (Descriptor.DerefByConstRef) {
@@ -817,8 +939,19 @@ void LoopConvertCheck::doConversion(
   SmallString<128> Range;
   llvm::raw_svector_ostream Output(Range);
   Output << '(';
-  Type.print(Output, getLangOpts());
-  Output << ' ' << VarNameOrStructuredBinding << " : ";
+  if (UseAuto) {
+    Type.print(Output, getLangOpts());
+    Output << ' ' << VarNameOrStructuredBinding;
+  } else {
+    PrintingPolicy Policy(getLangOpts());
+    Policy.SuppressTagKeyword = true;
+    Policy.SuppressUnwrittenScope = true;
+    Policy.FullyQualifiedName = true;
+    Policy.UsePreferredNames = false;
+    // The name must be printed inside array and function-pointer declarators.
+    Type.print(Output, Policy, VarNameOrStructuredBinding);
+  }
+  Output << " : ";
   if (Descriptor.NeedsReverseCall)
     Output << getReverseFunction() << '(';
   if (Descriptor.ContainerNeedsDereference)
@@ -887,7 +1020,9 @@ void LoopConvertCheck::getArrayLoopQualifiers(ASTContext *Context,
   for (const Usage &U : Usages) {
     if (!U.Expression || U.Expression->getType().isNull())
       continue;
-    QualType Type = U.Expression->getType().getCanonicalType();
+    QualType Type = U.Expression->getType();
+    if (UseAuto)
+      Type = Type.getCanonicalType();
     if (U.Kind == Usage::UK_MemberThroughArrow) {
       if (!Type->isPointerType())
         continue;
@@ -950,6 +1085,14 @@ void LoopConvertCheck::determineRangeDescriptor(
     getIteratorLoopQualifiers(Context, Nodes, Descriptor);
   else
     getArrayLoopQualifiers(Context, Nodes, ContainerExpr, Usages, Descriptor);
+
+  if (!UseAuto && !Descriptor.ElemType.isNull()) {
+    const ValueDecl *Container = getReferencedVariable(ContainerExpr);
+    QualType ContainerType =
+        Container ? Container->getType() : ContainerExpr->getType();
+    Descriptor.ElemType =
+        getTypeAsWritten(*Context, ContainerType, Descriptor.ElemType);
+  }
 }
 
 /// Check some of the conditions that must be met for the loop to be

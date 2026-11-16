@@ -73,6 +73,7 @@ private:
   StringRef getReverseHeader() const;
 
   std::unique_ptr<TUTrackingInfo> TUInfo;
+  const bool UseAuto;
   const unsigned long long MaxCopySize;
   const Confidence::Level MinConfidence;
   const VariableNamer::NamingStyle NamingStyle;
